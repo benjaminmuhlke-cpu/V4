@@ -49,9 +49,9 @@ export default function CTA() {
     <section
       ref={ref}
       id="contact"
-      className="overflow-hidden bg-stone-50 px-6 py-32 md:px-10 md:py-40 lg:px-16"
+      className="bg-stone-50 py-16 md:py-24"
     >
-      <div className="mx-auto max-w-screen-xl">
+      <div className="mx-auto max-w-screen-xl px-6 md:px-10 lg:px-16">
         <motion.div
           initial="hidden"
           animate={isInView ? 'visible' : 'hidden'}
@@ -162,7 +162,8 @@ export default function CTA() {
               <button
                 type="submit"
                 disabled={status === 'submitting'}
-                className="inline-flex items-center justify-center rounded-full bg-[#FF642B] px-6 py-4 text-sm font-semibold uppercase tracking-[0.16em] text-white transition-colors duration-300 hover:bg-[#e55720] disabled:cursor-not-allowed disabled:bg-[#ff9a76]"
+                data-cursor="hover"
+                className="hover-grow-5 inline-flex items-center justify-center rounded-full bg-[#FF642B] px-6 py-4 text-sm font-semibold uppercase tracking-[0.16em] text-white transition-colors duration-300 hover:bg-[#e55720] disabled:cursor-not-allowed disabled:bg-[#ff9a76]"
               >
                 {status === 'submitting' ? 'Sending...' : 'Send Inquiry'}
               </button>

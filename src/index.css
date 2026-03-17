@@ -21,10 +21,18 @@
     box-sizing: border-box;
   }
 
+  /* Force sharp/square corners site-wide */
+  *,
+  *::before,
+  *::after {
+    border-radius: 0 !important;
+  }
+
   html {
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
   }
 
   body {
@@ -32,6 +40,7 @@
     font-family: "America", Helvetica, Arial, sans-serif;
     font-weight: 300;
     line-height: 1.2;
+    overflow-x: hidden;
   }
 
   ::selection {
@@ -60,5 +69,15 @@
 
   .clip-inset {
     clip-path: inset(0);
+  }
+
+  .hover-grow-5 {
+    transition: transform 180ms ease;
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .hover-grow-5:hover {
+    transform: scale(1.05);
   }
 }

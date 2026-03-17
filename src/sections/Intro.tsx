@@ -42,26 +42,27 @@ export default function Intro() {
     <section
       ref={ref}
       id="about"
-      className="overflow-hidden bg-stone-900 px-6 py-28 text-stone-50 md:px-10 md:py-40 lg:px-16"
+      className="bg-stone-900 px-6 py-16 text-stone-50 md:px-10 md:py-24 lg:px-16"
     >
       <div className="mx-auto max-w-screen-xl">
         <motion.div
           variants={staggerContainer}
           initial="hidden"
           animate={isInView ? 'visible' : 'hidden'}
-          className="grid grid-cols-1 gap-16 md:grid-cols-12 md:gap-8"
+          className="grid grid-cols-1 gap-10 md:grid-cols-2 md:gap-16"
         >
-          <motion.div variants={fadeUp} className="flex flex-col justify-start pt-2 md:col-span-3">
-            <p className="text-xs font-medium uppercase tracking-[0.25em] text-stone-400">
-              About
-            </p>
-            <motion.div variants={lineReveal} className="mt-4 h-px w-12 bg-stone-700" />
-          </motion.div>
+          {/* LEFT — text content */}
+          <div className="flex flex-col gap-8">
+            <motion.div variants={fadeUp}>
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-stone-400">
+                About
+              </p>
+              <motion.div variants={lineReveal} className="mt-4 h-px w-12 bg-stone-700" />
+            </motion.div>
 
-          <div className="flex flex-col gap-10 md:col-span-9">
             <motion.p
               variants={fadeUp}
-              className="font-display max-w-4xl text-[clamp(2rem,4.4vw,3.75rem)] font-semibold leading-[1.08] tracking-[-0.05em] text-stone-50"
+              className="font-display text-[clamp(2rem,3.6vw,3.2rem)] font-semibold leading-[1.08] tracking-[-0.05em] text-stone-50"
             >
               Studio91 is a creative studio for brands that need to look
               credible, feel intentional, and communicate value from the first
@@ -70,7 +71,7 @@ export default function Intro() {
 
             <motion.p
               variants={fadeUp}
-              className="max-w-2xl text-base leading-relaxed text-stone-400 md:text-lg"
+              className="text-base leading-relaxed text-stone-400 md:text-lg"
             >
               We work with founders, studios, and growing businesses at key
               moments: launches, repositioning, offer refinement, and digital
@@ -78,7 +79,7 @@ export default function Intro() {
               feel clear, premium, and easy to trust.
             </motion.p>
 
-            <motion.div variants={fadeUp} className="mt-2 flex flex-wrap gap-3">
+            <motion.div variants={fadeUp} className="flex flex-wrap gap-3">
               {disciplines.map((discipline) => (
                 <span
                   key={discipline}
@@ -89,20 +90,24 @@ export default function Intro() {
               ))}
             </motion.div>
 
+            {/* Studio story — compact expandable */}
             <motion.details
               variants={fadeUp}
-              className="group mt-4 rounded-3xl border border-stone-800 bg-stone-950/50 p-6"
+              className="group border-t border-stone-800 pt-6"
             >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left">
+              <summary
+                data-cursor="hover"
+                className="flex cursor-pointer list-none items-center justify-between gap-4"
+              >
                 <div>
                   <p className="text-xs font-medium uppercase tracking-[0.25em] text-stone-500">
                     Background
                   </p>
-                  <p className="mt-2 font-display text-2xl font-semibold tracking-[-0.04em] text-stone-50">
+                  <p className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-stone-50">
                     Read the studio story
                   </p>
                 </div>
-                <span className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-stone-300 transition-colors duration-300 group-hover:border-[#FF642B] group-hover:text-[#FF642B]">
+                <span className="hover-grow-5 border border-stone-700 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-stone-300 transition-colors duration-300 group-hover:border-[#FF642B] group-hover:text-[#FF642B]">
                   Expand
                 </span>
               </summary>
@@ -111,7 +116,7 @@ export default function Intro() {
                 {journey.map((item) => (
                   <div
                     key={item.year}
-                    className="rounded-2xl border border-stone-800 bg-stone-900/80 p-5"
+                    className="border border-stone-800 bg-stone-900/80 p-5"
                   >
                     <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#FF9A76]">
                       {item.year}
@@ -124,6 +129,22 @@ export default function Intro() {
               </div>
             </motion.details>
           </div>
+
+          {/* RIGHT — image */}
+          <motion.div
+            variants={fadeUp}
+            className="relative hidden md:block"
+          >
+            <div className="sticky top-24 h-[600px] w-full overflow-hidden">
+              <img
+                src="https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&q=80&auto=format&fit=crop"
+                alt="Studio91 workspace"
+                className="h-full w-full object-cover grayscale"
+              />
+              {/* Subtle dark overlay so it doesn't compete with text */}
+              <div className="pointer-events-none absolute inset-0 bg-stone-900/30" />
+            </div>
+          </motion.div>
         </motion.div>
       </div>
     </section>

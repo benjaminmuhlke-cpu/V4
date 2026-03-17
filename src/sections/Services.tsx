@@ -57,9 +57,9 @@ export default function Services() {
     <section
       ref={ref}
       id="services"
-      className="py-28 md:py-40 px-6 md:px-10 lg:px-16 bg-stone-100 overflow-hidden"
+      className="bg-stone-100 py-24 md:py-36"
     >
-      <div className="max-w-screen-xl mx-auto">
+      <div className="mx-auto max-w-screen-xl px-6 md:px-10 lg:px-16">
         <motion.div
           initial="hidden"
           animate={isInView ? 'visible' : 'hidden'}

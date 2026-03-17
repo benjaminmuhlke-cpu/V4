@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 type Project = {
@@ -41,115 +41,183 @@ const slides: Project[] = [
 ];
 
 const AUTO_ADVANCE_MS = 5000;
+const TRANSITION_MS = 2700;
+
+// Extended track: [clone of last, ...real slides, clone of first]
+const extendedSlides = [slides[slides.length - 1], ...slides, slides[0]];
 
 export default function ProjectShowcase() {
   const shouldReduceMotion = useReducedMotion();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
 
-  const activeIndexRef = useRef(activeIndex);
-  useEffect(() => {
-    activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
+  // pos is the index within extendedSlides; real slides live at pos 1..slideCount
+  const [pos, setPos] = useState(1);
+  const [animated, setAnimated] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const slideCount = slides.length;
-  const activeSlide = slides[activeIndex];
 
-  const trackStyle = useMemo(() => {
-    return {
-      transform: `translateX(-${activeIndex * 100}%)`,
-      transition: shouldReduceMotion ? 'none' : 'transform 2700ms cubic-bezier(0.19, 1, 0.22, 1)',
-    } as const;
-  }, [activeIndex, shouldReduceMotion]);
+  // Real slide index (for caption + dots)
+  const realIndex =
+    pos <= 0
+      ? slideCount - 1
+      : pos >= slideCount + 1
+      ? 0
+      : pos - 1;
 
+  const activeSlide = slides[realIndex];
+
+  // After reaching a clone, silently jump to the real counterpart
   useEffect(() => {
-    if (shouldReduceMotion) return;
-    if (isPaused) return;
-    const id = window.setInterval(() => {
-      setActiveIndex((idx) => (idx + 1) % slideCount);
-    }, AUTO_ADVANCE_MS);
+    if (pos === slideCount + 1) {
+      // Just passed the clone of the first slide — jump back to real first
+      resetTimer.current = setTimeout(() => {
+        setAnimated(false);
+        setPos(1);
+      }, TRANSITION_MS + 30);
+    } else if (pos === 0) {
+      // Just passed the clone of the last slide — jump to real last
+      resetTimer.current = setTimeout(() => {
+        setAnimated(false);
+        setPos(slideCount);
+      }, TRANSITION_MS + 30);
+    }
+    return () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    };
+  }, [pos, slideCount]);
+
+  // Re-enable animation one frame after the silent jump
+  useEffect(() => {
+    if (!animated) {
+      const t = setTimeout(() => setAnimated(true), 50);
+      return () => clearTimeout(t);
+    }
+  }, [animated]);
+
+  const goNext = useCallback(() => {
+    setAnimated(true);
+    setPos((p) => p + 1);
+  }, []);
+
+  const goPrev = useCallback(() => {
+    setAnimated(true);
+    setPos((p) => p - 1);
+  }, []);
+
+  // Auto-advance
+  useEffect(() => {
+    if (shouldReduceMotion || isPaused) return;
+    const id = window.setInterval(goNext, AUTO_ADVANCE_MS);
     return () => window.clearInterval(id);
-  }, [isPaused, shouldReduceMotion, slideCount]);
+  }, [isPaused, shouldReduceMotion, goNext]);
+
+  const trackStyle = {
+    transform: `translateX(-${pos * 100}%)`,
+    transition:
+      !animated || shouldReduceMotion
+        ? 'none'
+        : `transform ${TRANSITION_MS}ms cubic-bezier(0.19, 1, 0.22, 1)`,
+  } as const;
+
+  // Click left half → prev, click right half → next
+  function handleSliderClick(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (e.clientX - rect.left < rect.width / 2) {
+      goPrev();
+    } else {
+      goNext();
+    }
+  }
 
   return (
-    <section className="bg-stone-50 px-6 py-24 md:px-10 md:py-28 lg:px-16">
-      <div className="mx-auto max-w-screen-xl">
-        <div className="mb-10 flex flex-col gap-4 md:mb-12 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-3xl">
+    <section id="projects" className="bg-stone-50">
+      {/* Header — padded, compact */}
+      <div className="mx-auto max-w-screen-xl px-6 pb-8 pt-14 md:px-10 lg:px-16">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-stone-400">
               Selected Projects
             </p>
-            <h2 className="mt-4 text-[clamp(2.1rem,4.6vw,4rem)] font-medium leading-[1] tracking-[-0.04em] text-stone-950">
-              A few projects,
-              <br />
-              shown slowly.
+            <h2 className="mt-3 text-[clamp(2.1rem,4.6vw,4rem)] font-medium leading-[1] tracking-[-0.04em] text-stone-950">
+              A few projects.
             </h2>
           </div>
           <p className="max-w-md text-base leading-7 text-stone-500">
-            A single image at a time, cycling through selected work.
+            Click left or right to navigate · auto-cycling
           </p>
         </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.2 }}
-          transition={{ duration: 0.55, ease: [0.19, 1, 0.22, 1] }}
-          className="group"
-          onMouseEnter={() => setIsPaused(true)}
-          onMouseLeave={() => setIsPaused(false)}
-          onFocusCapture={() => setIsPaused(true)}
-          onBlurCapture={() => setIsPaused(false)}
-        >
-          <div className="relative overflow-hidden bg-stone-200">
-            <div className="flex w-full" style={trackStyle}>
-              {slides.map((slide) => (
-                <div key={slide.title} className="w-full shrink-0">
-                  <div className="relative h-[clamp(220px,34vh,380px)] w-full overflow-hidden bg-stone-200 md:h-[clamp(260px,36vh,420px)]">
-                    <img
-                      src={slide.image}
-                      alt={slide.title}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                    <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-stone-200" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col items-center gap-4">
-            <div className="text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FF642B]">
-                {activeSlide.category}
-              </p>
-              <p className="mt-2 text-2xl font-medium tracking-[-0.02em] text-stone-950">
-                {activeSlide.title}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-center gap-3">
-              {slides.map((slide, index) => {
-                const active = index === activeIndex;
-                return (
-                  <button
-                    key={slide.title}
-                    type="button"
-                    aria-label={`Go to project ${index + 1}`}
-                    onClick={() => setActiveIndex(index)}
-                    className="h-3 w-3 rounded-full transition-colors duration-200"
-                    style={{
-                      backgroundColor: active ? '#FF642B' : '#a8a29e',
-                      opacity: active ? 1 : 0.7,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </motion.div>
       </div>
+
+      {/* Full-width image slider — edge to edge, 75vh */}
+      <motion.div
+        initial={{ opacity: 0, y: 18 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.55, ease: [0.19, 1, 0.22, 1] }}
+        className="group relative w-full cursor-pointer overflow-hidden"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+        onFocusCapture={() => setIsPaused(true)}
+        onBlurCapture={() => setIsPaused(false)}
+        onClick={handleSliderClick}
+      >
+        {/* Track — includes clones on both ends */}
+        <div className="flex w-full" style={trackStyle}>
+          {extendedSlides.map((slide, i) => (
+            <div key={`${slide.title}-${i}`} className="w-full shrink-0">
+              <div className="relative h-[55vh] w-full overflow-hidden bg-stone-200 md:h-[75vh]">
+                <img
+                  src={slide.image}
+                  alt={slide.title}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Left / right click hint zones — subtle cursor arrows */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-1/2 items-center justify-start pl-6 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+          <span className="text-2xl text-white/60">‹</span>
+        </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex w-1/2 items-center justify-end pr-6 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+          <span className="text-2xl text-white/60">›</span>
+        </div>
+
+        {/* Bottom-right overlay caption + dots */}
+        <div className="absolute bottom-6 right-6 z-10 max-w-[min(360px,calc(100%-3rem))] bg-stone-950/60 p-5 text-right text-stone-50 backdrop-blur-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#FF642B]">
+            {activeSlide.category}
+          </p>
+          <p className="mt-2 text-2xl font-medium tracking-[-0.02em] text-stone-50">
+            {activeSlide.title}
+          </p>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            {slides.map((slide, index) => {
+              const active = index === realIndex;
+              return (
+                <button
+                  key={slide.title}
+                  type="button"
+                  aria-label={`Go to project ${index + 1}`}
+                  onClick={(e) => {
+                    e.stopPropagation(); // don't trigger left/right click
+                    setAnimated(true);
+                    setPos(index + 1);
+                  }}
+                  className="h-3 w-3 transition-colors duration-200"
+                  style={{
+                    backgroundColor: active ? '#FF642B' : '#a8a29e',
+                    opacity: active ? 1 : 0.8,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </motion.div>
     </section>
   );
 }

@@ -8,8 +8,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['"Editorial New"', '"Playfair Display"', 'Georgia', 'serif'],
+        sans: ['"America"', 'Helvetica', 'Arial', 'sans-serif'],
+        display: ['"America"', 'Helvetica', 'Arial', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
