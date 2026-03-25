@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Menu } from 'lucide-react';
 
 const navLinks = [
-  { label: 'Projects', href: '#projects' },
+  { label: 'Work', href: '#projects' },
   { label: 'Services', href: '#services' },
-  { label: 'Who We Are', href: '#about' },
+  { label: 'Studio', href: '#about' },
 ];
 
 export default function Header() {
@@ -25,67 +24,68 @@ export default function Header() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: [0.19, 1, 0.22, 1] }}
         className={`fixed left-0 right-0 top-0 z-50 transition-all duration-500 ${
-          scrolled
-            ? 'border-b border-stone-200 bg-stone-50/90 backdrop-blur-md'
-            : 'bg-transparent'
+          scrolled ? 'border-b border-ink/10 bg-white/95 backdrop-blur-sm' : 'bg-transparent'
         }`}
       >
         <div className="mx-auto max-w-screen-xl px-6 md:px-10 lg:px-16">
-          <div className="flex h-16 items-center justify-between md:h-20">
+          <div className="flex h-14 items-center justify-between md:h-16">
             <a
               href="#"
-              className="font-display text-xl font-bold tracking-[-0.04em] text-[#FF642B] transition-opacity duration-300 hover:opacity-80 md:text-2xl"
+              className="font-display text-base font-semibold tracking-[-0.04em] text-ink transition-opacity duration-300 hover:opacity-50"
             >
               Studio91
             </a>
 
-            {/* Desktop nav */}
-            <nav className="hidden items-center gap-10 md:flex">
+            {/* Desktop nav — all right */}
+            <div className="hidden items-center gap-10 md:flex">
               {navLinks.map((link) => (
                 <a
                   key={link.label}
                   href={link.href}
-                  className="group relative text-sm font-medium uppercase tracking-[0.16em] text-stone-500 transition-colors duration-300 hover:text-stone-950"
+                  className="label link-line text-ink hover:text-ink transition-opacity duration-300 hover:opacity-60"
                 >
                   {link.label}
-                  <span className="absolute -bottom-1 left-0 h-px w-0 bg-[#FF642B] transition-all duration-300 ease-out group-hover:w-full" />
                 </a>
               ))}
-            </nav>
-
-            <div className="hidden items-center gap-4 md:flex">
               <a
                 href="#contact"
                 data-cursor="hover"
-                className="hover-grow-5 inline-flex items-center px-5 py-2.5 text-sm font-medium text-white transition-colors duration-300 hover:bg-[#e55720]"
-                style={{ backgroundColor: '#FF642B' }}
+                className="label text-ink transition-opacity duration-300 hover:opacity-50"
               >
-                Let's Talk
+                Contact ↗
               </a>
             </div>
 
             <button
-              className="p-1 text-stone-900 md:hidden"
+              className="flex h-8 w-8 flex-col items-center justify-center gap-[5px] text-ink md:hidden"
               onClick={() => setMenuOpen(!menuOpen)}
               aria-label="Toggle menu"
             >
-              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+              <span
+                className={`block h-px w-6 bg-current transition-all duration-300 ${menuOpen ? 'translate-y-[7px] rotate-45' : ''}`}
+              />
+              <span
+                className={`block h-px w-6 bg-current transition-all duration-300 ${menuOpen ? 'opacity-0' : ''}`}
+              />
+              <span
+                className={`block h-px w-6 bg-current transition-all duration-300 ${menuOpen ? '-translate-y-[7px] -rotate-45' : ''}`}
+              />
             </button>
           </div>
         </div>
       </motion.header>
 
-      {/* Mobile menu */}
+      {/* Mobile menu — full black overlay */}
       <AnimatePresence>
         {menuOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.4, ease: [0.19, 1, 0.22, 1] }}
-            className="fixed inset-0 z-40 flex flex-col bg-stone-50 px-6 pt-20 md:hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: [0.19, 1, 0.22, 1] }}
+            className="fixed inset-0 z-40 flex flex-col bg-ink px-6 pt-20 md:hidden"
           >
-            <nav className="mt-8 flex flex-col gap-8">
+            <nav className="mt-8 flex flex-col gap-0 border-t border-white/10">
               {navLinks.map((link, i) => (
                 <motion.a
                   key={link.label}
@@ -94,22 +94,20 @@ export default function Header() {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.07, duration: 0.5, ease: [0.19, 1, 0.22, 1] }}
                   onClick={() => setMenuOpen(false)}
-                  className="font-display text-4xl font-semibold tracking-[-0.04em] text-stone-950 transition-colors duration-300 hover:text-[#FF642B]"
+                  className="border-b border-white/10 py-7 font-display text-5xl font-semibold tracking-[-0.04em] text-white transition-colors duration-300 hover:text-accent"
                 >
                   {link.label}
                 </motion.a>
               ))}
               <motion.a
                 href="#contact"
-                data-cursor="hover"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.35, duration: 0.5 }}
                 onClick={() => setMenuOpen(false)}
-                className="hover-grow-5 mt-4 inline-flex self-start px-8 py-4 text-sm font-medium text-white transition-colors duration-300 hover:bg-[#e55720]"
-                style={{ backgroundColor: '#FF642B' }}
+                className="mt-8 inline-flex self-start border border-white/20 px-8 py-4 text-xs font-medium uppercase tracking-[0.2em] text-white transition-colors duration-300 hover:border-accent hover:text-accent"
               >
-                Let's Talk
+                Contact ↗
               </motion.a>
             </nav>
           </motion.div>

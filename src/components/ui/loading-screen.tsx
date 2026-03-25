@@ -40,7 +40,7 @@ export default function LoadingScreen({ onComplete }: { onComplete?: () => void 
 
   return (
     <motion.div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-stone-950"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a0a0a]"
       // Fade out the whole overlay after the square has expanded
       animate={isExpanding ? { opacity: 0 } : { opacity: 1 }}
       transition={isExpanding ? { duration: 0.45, delay: 0.35 } : {}}

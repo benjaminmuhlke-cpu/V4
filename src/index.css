@@ -4,20 +4,14 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 20 14.3% 4.1%;
-    --muted: 60 4.8% 95.9%;
-    --muted-foreground: 25 5.3% 44.7%;
-    --border: 20 5.9% 90%;
-    --input: 20 5.9% 90%;
-    --primary: 24 9.8% 10%;
-    --primary-foreground: 60 9.1% 97.8%;
-    --accent: 18 100% 58%;
-    --radius: 0.25rem;
+    --ink: #0a0a0a;
+    --paper: #ffffff;
+    --accent: #FF642B;
+    --muted: #6b6b6b;
+    --rule: #d4d4d4;
   }
 
   * {
-    @apply border-stone-200;
     box-sizing: border-box;
   }
 
@@ -36,7 +30,8 @@
   }
 
   body {
-    @apply bg-stone-50 text-stone-900;
+    background-color: #ffffff;
+    color: #0a0a0a;
     font-family: "America", Helvetica, Arial, sans-serif;
     font-weight: 300;
     line-height: 1.2;
@@ -44,8 +39,8 @@
   }
 
   ::selection {
-    background: #ff642b;
-    color: #fff7f2;
+    background: #FF642B;
+    color: #ffffff;
   }
 
   summary::-webkit-details-marker {
@@ -58,26 +53,39 @@
     font-family: "America", Helvetica, Arial, sans-serif;
   }
 
-  .font-logo {
-    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
-      monospace;
+  .font-mono {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
   }
 
   .text-balance {
     text-wrap: balance;
   }
 
-  .clip-inset {
-    clip-path: inset(0);
+  /* Editorial label — tiny all-caps */
+  .label {
+    font-size: 0.65rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.28em;
+    color: #6b6b6b;
   }
 
-  .hover-grow-5 {
-    transition: transform 180ms ease;
-    transform-origin: center;
-    will-change: transform;
+  /* Brutalist link underline */
+  .link-line {
+    position: relative;
+    display: inline-block;
   }
-
-  .hover-grow-5:hover {
-    transform: scale(1.05);
+  .link-line::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 1px;
+    background: #0a0a0a;
+    transition: width 0.35s cubic-bezier(0.19, 1, 0.22, 1);
+  }
+  .link-line:hover::after {
+    width: 100%;
   }
 }

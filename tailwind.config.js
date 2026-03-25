@@ -13,6 +13,11 @@ export default {
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
+        ink: '#0a0a0a',
+        dark: '#1a1a1a',
+        paper: '#ffffff',
+        accent: '#FF642B',
+        muted: '#6b6b6b',
         stone: {
           50: '#fafaf9',
           100: '#f5f5f4',

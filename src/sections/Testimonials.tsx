@@ -30,51 +30,59 @@ export default function Testimonials() {
   return (
     <section
       ref={ref}
-      className="bg-stone-900 py-16 text-stone-50 md:py-24"
+      className="bg-ink py-20 md:py-32"
     >
       <div className="mx-auto max-w-screen-xl px-6 md:px-10 lg:px-16">
         <motion.div
+          variants={staggerContainer}
           initial="hidden"
           animate={isInView ? 'visible' : 'hidden'}
-          variants={staggerContainer}
         >
-          <div className="mb-12 flex flex-col gap-3 md:mb-16">
-            <motion.p
-              variants={fadeUp}
-              className="text-xs font-medium uppercase tracking-[0.25em] text-stone-500"
-            >
-              Trusted By Founders
-            </motion.p>
+          {/* Header */}
+          <div className="mb-16 flex items-end justify-between border-b border-white/10 pb-5">
             <motion.h2
               variants={fadeUp}
-              className="font-display max-w-4xl text-[clamp(2.2rem,5vw,4.75rem)] font-semibold leading-[1] tracking-[-0.05em] text-stone-50"
+              className="font-display font-semibold leading-none tracking-[-0.05em] text-white"
+              style={{ fontSize: 'clamp(3rem, 8vw, 8rem)' }}
             >
-              Social proof that helps clients
-              <br />
-              trust the process quickly.
+              Trusted.
             </motion.h2>
+            <motion.span variants={fadeUp} className="label hidden text-white/30 md:block">
+              Client Words
+            </motion.span>
           </div>
 
-          <motion.div
-            variants={staggerContainer}
-            className="grid grid-cols-1 gap-px bg-stone-800 md:grid-cols-3"
-          >
-            {testimonials.map((testimonial) => (
+          {/* Featured quote — very large */}
+          <motion.div variants={fadeUp} className="mb-12 border-b border-white/10 pb-12 md:mb-16 md:pb-16">
+            <p className="font-display font-semibold tracking-[-0.04em] text-white" style={{ fontSize: 'clamp(1.5rem, 3.5vw, 3.2rem)', lineHeight: '1.1' }}>
+              &ldquo;{testimonials[0].quote}&rdquo;
+            </p>
+            <div className="mt-6 flex items-center gap-4">
+              <div className="h-px w-8 bg-accent" />
+              <div>
+                <p className="text-sm font-semibold text-white">{testimonials[0].author}</p>
+                <p className="label text-white/30 mt-0.5">{testimonials[0].role}</p>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Two smaller quotes */}
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-px bg-white/10 md:grid-cols-2">
+            {testimonials.slice(1).map((t) => (
               <motion.div
-                key={testimonial.author}
+                key={t.author}
                 variants={fadeUp}
-                className="group flex flex-col justify-between gap-10 bg-stone-900 p-8 transition-colors duration-400 hover:bg-stone-800 md:p-10"
+                className="bg-ink p-8 md:p-10"
               >
-                <p className="text-lg leading-relaxed text-stone-200 md:text-xl">
-                  &quot;{testimonial.quote}&quot;
+                <p className="text-base leading-relaxed text-white/60 md:text-lg">
+                  &ldquo;{t.quote}&rdquo;
                 </p>
-                <div className="flex flex-col gap-1 border-t border-stone-800 pt-4 transition-colors duration-300 group-hover:border-stone-700">
-                  <span className="text-sm font-semibold text-stone-50">
-                    {testimonial.author}
-                  </span>
-                  <span className="text-xs tracking-wide text-stone-500">
-                    {testimonial.role}
-                  </span>
+                <div className="mt-8 flex items-center gap-3 border-t border-white/10 pt-6">
+                  <div className="h-px w-5 bg-accent" />
+                  <div>
+                    <p className="text-sm font-semibold text-white">{t.author}</p>
+                    <p className="label text-white/30 mt-0.5">{t.role}</p>
+                  </div>
                 </div>
               </motion.div>
             ))}
@@ -84,4 +92,3 @@ export default function Testimonials() {
     </section>
   );
 }
-

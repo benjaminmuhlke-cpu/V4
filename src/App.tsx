@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import Header from './sections/Header';
 import Hero from './sections/Hero';
+import CollaboratorsBanner from './sections/CollaboratorsBanner';
+import GlobalReach from './sections/GlobalReach';
 import ProjectShowcase from './sections/ProjectShowcase';
 import Services from './sections/Services';
 import Intro from './sections/Intro';
@@ -25,7 +27,9 @@ export default function App() {
       <CustomCursor />
       <Header />
       <Hero loadingDone={scrambleReady} />       {/* 1 */}
-      <ProjectShowcase />                         {/* 2 */}
+      <CollaboratorsBanner />                     {/* 2 */}
+      <GlobalReach />                             {/* 3 */}
+      <ProjectShowcase />                         {/* 4 */}
       <Services />                                {/* 3 */}
       <Intro />                                   {/* 4 */}
       <Testimonials />                            {/* 5 */}

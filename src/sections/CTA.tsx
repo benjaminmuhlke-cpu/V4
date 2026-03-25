@@ -14,30 +14,22 @@ const budgetOptions = [
 
 export default function CTA() {
   const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, amount: 0.3 });
+  const isInView = useInView(ref, { once: true, amount: 0.2 });
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus('submitting');
-
     const form = event.currentTarget;
     const formData = new FormData(form);
     formData.append('_subject', 'New Studio91 inquiry');
-
     try {
       const response = await fetch(FORMSPREE_ENDPOINT, {
         method: 'POST',
-        headers: {
-          Accept: 'application/json',
-        },
+        headers: { Accept: 'application/json' },
         body: formData,
       });
-
-      if (!response.ok) {
-        throw new Error('Submission failed');
-      }
-
+      if (!response.ok) throw new Error('failed');
       form.reset();
       setStatus('success');
     } catch {
@@ -49,148 +41,133 @@ export default function CTA() {
     <section
       ref={ref}
       id="contact"
-      className="bg-stone-50 py-16 md:py-24"
+      className="bg-white"
     >
-      <div className="mx-auto max-w-screen-xl px-6 md:px-10 lg:px-16">
-        <motion.div
-          initial="hidden"
-          animate={isInView ? 'visible' : 'hidden'}
-          variants={staggerContainer}
-          className="grid gap-12 rounded-[2rem] border border-stone-200 bg-white p-8 md:grid-cols-[0.9fr_1.1fr] md:gap-16 md:p-12"
-        >
-          <div className="flex flex-col gap-6">
-            <motion.p
-              variants={fadeUp}
-              className="text-xs font-medium uppercase tracking-[0.25em] text-stone-400"
-            >
-              Contact
-            </motion.p>
-
+      {/* Full-width black header bar */}
+      <div className="bg-ink px-6 py-16 md:px-10 md:py-24 lg:px-16">
+        <div className="mx-auto max-w-screen-xl">
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            animate={isInView ? 'visible' : 'hidden'}
+            className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between"
+          >
             <motion.h2
               variants={fadeUp}
-              className="font-display text-[clamp(2.4rem,6vw,5rem)] font-semibold leading-[0.95] tracking-[-0.05em] text-stone-950"
+              className="font-display font-semibold tracking-[-0.05em] text-white"
+              style={{ fontSize: 'clamp(3.2rem, 9vw, 9.5rem)', lineHeight: '0.88' }}
             >
-              Tell us what you need,
-              <br />
-              we&apos;ll get back to you ASAP.
+              Start A<br />Project.
             </motion.h2>
-
-            <motion.p
-              variants={fadeUp}
-              className="max-w-md text-base leading-8 text-stone-500"
-            >
-              Share your basic contact info, a short description of the
-              project, and your budget range. Form submissions are set up for
-              <span className="font-medium text-stone-700"> naiwen1991@gmail.com</span>.
+            <motion.p variants={fadeUp} className="max-w-xs text-sm leading-relaxed text-white/40 md:text-right">
+              Share your project brief and budget range.
+              We respond to every inquiry within 48 hours.
             </motion.p>
+          </motion.div>
+        </div>
+      </div>
 
-            <motion.div
-              variants={fadeUp}
-              className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-5 text-sm leading-7 text-stone-500"
+      {/* Form section — white */}
+      <div className="mx-auto max-w-screen-xl px-6 py-14 md:px-10 md:py-20 lg:px-16">
+        <motion.form
+          variants={staggerContainer}
+          initial="hidden"
+          animate={isInView ? 'visible' : 'hidden'}
+          onSubmit={handleSubmit}
+          className="grid gap-0 border border-ink/10 md:grid-cols-2"
+        >
+          {/* Name */}
+          <motion.label variants={fadeUp} className="grid gap-2 border-b border-ink/10 p-6 md:border-r">
+            <span className="label">Name *</span>
+            <input
+              required
+              name="name"
+              type="text"
+              className="border-none bg-transparent text-base text-ink outline-none placeholder:text-ink/25 focus:outline-none"
+              placeholder="Your name"
+            />
+          </motion.label>
+
+          {/* Email */}
+          <motion.label variants={fadeUp} className="grid gap-2 border-b border-ink/10 p-6">
+            <span className="label">Email *</span>
+            <input
+              required
+              name="email"
+              type="email"
+              className="border-none bg-transparent text-base text-ink outline-none placeholder:text-ink/25 focus:outline-none"
+              placeholder="you@example.com"
+            />
+          </motion.label>
+
+          {/* Company */}
+          <motion.label variants={fadeUp} className="grid gap-2 border-b border-ink/10 p-6 md:border-r">
+            <span className="label">Company / Brand</span>
+            <input
+              name="company"
+              type="text"
+              className="border-none bg-transparent text-base text-ink outline-none placeholder:text-ink/25 focus:outline-none"
+              placeholder="Optional"
+            />
+          </motion.label>
+
+          {/* Budget */}
+          <motion.label variants={fadeUp} className="grid gap-2 border-b border-ink/10 p-6">
+            <span className="label">Budget Range *</span>
+            <select
+              required
+              name="budget"
+              defaultValue=""
+              className="border-none bg-transparent text-base text-ink outline-none focus:outline-none"
             >
-              Replace the placeholder Formspree endpoint in this component with
-              your live form ID before launch.
-            </motion.div>
-          </div>
+              <option value="" disabled className="text-ink/30">
+                Select a range
+              </option>
+              {budgetOptions.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </motion.label>
 
-          <motion.form variants={fadeUp} onSubmit={handleSubmit} className="grid gap-5">
-            <div className="grid gap-5 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-stone-700">
-                Name
-                <input
-                  required
-                  name="name"
-                  type="text"
-                  className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3.5 text-base text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-[#FF642B]"
-                  placeholder="Your name"
-                />
-              </label>
+          {/* Message */}
+          <motion.label variants={fadeUp} className="grid gap-2 border-b border-ink/10 p-6 md:col-span-2">
+            <span className="label">Project Brief *</span>
+            <textarea
+              required
+              name="projectNeed"
+              rows={5}
+              className="border-none bg-transparent text-base text-ink outline-none placeholder:text-ink/25 focus:outline-none resize-none"
+              placeholder="Describe your project, goals, and timeline."
+            />
+          </motion.label>
 
-              <label className="grid gap-2 text-sm font-medium text-stone-700">
-                Email
-                <input
-                  required
-                  name="email"
-                  type="email"
-                  className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3.5 text-base text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-[#FF642B]"
-                  placeholder="you@example.com"
-                />
-              </label>
-            </div>
-
-            <label className="grid gap-2 text-sm font-medium text-stone-700">
-              Company / Brand
-              <input
-                name="company"
-                type="text"
-                className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3.5 text-base text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-[#FF642B]"
-                placeholder="Optional"
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-medium text-stone-700">
-              What do you need?
-              <textarea
-                required
-                name="projectNeed"
-                rows={5}
-                className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3.5 text-base text-stone-900 outline-none transition-colors duration-200 placeholder:text-stone-400 focus:border-[#FF642B]"
-                placeholder="Briefly describe your project, goals, and timeline."
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-medium text-stone-700">
-              Budget
-              <select
-                required
-                name="budget"
-                defaultValue=""
-                className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3.5 text-base text-stone-900 outline-none transition-colors duration-200 focus:border-[#FF642B]"
-              >
-                <option value="" disabled>
-                  Select a budget range
-                </option>
-                {budgetOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="flex flex-col gap-3 pt-2">
+          {/* Submit row */}
+          <motion.div variants={fadeUp} className="flex items-center justify-between p-6 md:col-span-2">
+            <p className="label text-ink/30 hidden md:block">
+              Submissions go to{' '}
+              <span className="text-ink/60">naiwen1991@gmail.com</span>
+            </p>
+            <div className="flex flex-col gap-2 w-full md:w-auto md:items-end">
               <button
                 type="submit"
                 disabled={status === 'submitting'}
                 data-cursor="hover"
-                className="hover-grow-5 inline-flex items-center justify-center rounded-full bg-[#FF642B] px-6 py-4 text-sm font-semibold uppercase tracking-[0.16em] text-white transition-colors duration-300 hover:bg-[#e55720] disabled:cursor-not-allowed disabled:bg-[#ff9a76]"
+                className="group inline-flex items-center gap-3 bg-ink px-8 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-white transition-all duration-300 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed w-full justify-center md:w-auto"
               >
                 {status === 'submitting' ? 'Sending...' : 'Send Inquiry'}
+                <span className="transition-transform duration-300 group-hover:translate-x-1">→</span>
               </button>
 
               {status === 'success' && (
-                <p className="text-sm text-emerald-600">
-                  Thanks. Your inquiry was sent successfully.
-                </p>
+                <p className="text-xs text-emerald-600 tracking-wide">Inquiry sent successfully.</p>
               )}
-
               {status === 'error' && (
-                <p className="text-sm text-red-600">
-                  Something went wrong. Please try again after updating the
-                  Formspree endpoint.
-                </p>
+                <p className="text-xs text-red-500 tracking-wide">Something went wrong. Please try again.</p>
               )}
             </div>
-          </motion.form>
-        </motion.div>
+          </motion.div>
+        </motion.form>
       </div>
-
-      <motion.div
-        initial={{ scaleX: 0, originX: 0.5 }}
-        animate={isInView ? { scaleX: 1 } : {}}
-        transition={{ duration: 1.4, ease: [0.19, 1, 0.22, 1], delay: 0.5 }}
-        className="mx-auto mt-24 h-px max-w-screen-xl bg-stone-200"
-      />
     </section>
   );
 }
