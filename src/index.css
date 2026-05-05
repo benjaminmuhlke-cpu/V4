@@ -4,22 +4,18 @@
 
 @layer base {
   :root {
-    --ink: #0a0a0a;
-    --paper: #ffffff;
-    --accent: #FF642B;
-    --muted: #6b6b6b;
-    --rule: #d4d4d4;
+    --earth-dark: #1C1208;
+    --earth-brown: #4A3728;
+    --warm-brown: #7C5B3A;
+    --earth-tan: #B08A60;
+    --earth-stone: #C9B49A;
+    --cream: #F4EDE0;
+    --forest: #2C4A2E;
+    --earth-amber: #C67B2E;
   }
 
   * {
     box-sizing: border-box;
-  }
-
-  /* Force sharp/square corners site-wide */
-  *,
-  *::before,
-  *::after {
-    border-radius: 0 !important;
   }
 
   html {
@@ -30,62 +26,26 @@
   }
 
   body {
-    background-color: #ffffff;
-    color: #0a0a0a;
-    font-family: "America", Helvetica, Arial, sans-serif;
+    background-color: #F4EDE0;
+    color: #1C1208;
+    font-family: "Source Sans 3", Helvetica, Arial, sans-serif;
     font-weight: 300;
     line-height: 1.2;
     overflow-x: hidden;
   }
 
   ::selection {
-    background: #FF642B;
-    color: #ffffff;
-  }
-
-  summary::-webkit-details-marker {
-    display: none;
+    background: #C67B2E;
+    color: #F4EDE0;
   }
 }
 
 @layer utilities {
   .font-display {
-    font-family: "America", Helvetica, Arial, sans-serif;
-  }
-
-  .font-mono {
-    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
+    font-family: "Playfair Display", Georgia, serif;
   }
 
   .text-balance {
     text-wrap: balance;
-  }
-
-  /* Editorial label — tiny all-caps */
-  .label {
-    font-size: 0.65rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.28em;
-    color: #6b6b6b;
-  }
-
-  /* Brutalist link underline */
-  .link-line {
-    position: relative;
-    display: inline-block;
-  }
-  .link-line::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: 0;
-    width: 0;
-    height: 1px;
-    background: #0a0a0a;
-    transition: width 0.35s cubic-bezier(0.19, 1, 0.22, 1);
-  }
-  .link-line:hover::after {
-    width: 100%;
   }
 }

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 180" fill="none">
+  <defs>
+    <filter id="wood-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#1C1208" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <!-- Organic wood plank shape -->
+  <path d="M 20 50 Q 10 30 40 20 Q 100 5 170 8 Q 240 5 300 20 Q 330 30 320 50 Q 335 80 320 130 Q 310 155 280 165 Q 220 178 170 175 Q 120 178 60 165 Q 30 155 20 130 Q 5 80 20 50 Z"
+    fill="#C8903A" filter="url(#wood-shadow)"/>
+  <!-- Wood grain lines -->
+  <path d="M 40 60 Q 170 50 300 65" stroke="#B07830" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+  <path d="M 35 80 Q 170 72 305 85" stroke="#B07830" stroke-width="0.8" stroke-opacity="0.3" fill="none"/>
+  <path d="M 32 100 Q 170 94 308 105" stroke="#B07830" stroke-width="0.8" stroke-opacity="0.3" fill="none"/>
+  <path d="M 35 120 Q 170 115 305 125" stroke="#B07830" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+  <!-- Carved text inset -->
+  <text x="170" y="118" font-family="serif" font-size="82" font-weight="900" text-anchor="middle" fill="#4A2800" letter-spacing="4">楞先生</text>
+</svg>
