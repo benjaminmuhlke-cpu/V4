@@ -1,7 +1,7 @@
 const stats = [
-  { number: '25+', label: 'Years of Experience' },
-  { number: '25+', label: 'Curated Brands' },
-  { number: '100%', label: 'Tested & Approved' },
+  { number: '25+', label: '年的戶外經驗' },
+  { number: '25+', label: '精選品牌' },
+  { number: '100%', label: '嚴格測試認證' },
 ];
 
 export default function StorySection() {
@@ -22,24 +22,18 @@ export default function StorySection() {
         </div>
 
         <div className="md:col-span-2">
-          <p className="text-earth-amber text-xs tracking-[0.3em] uppercase mb-3">Our Story</p>
+          <p className="text-earth-amber text-xs tracking-[0.3em] uppercase mb-3">關於我們</p>
           <h2 className="font-display text-4xl md:text-5xl text-cream mb-8 leading-tight">
-            Passion for the Outdoors,<br />Since Day One
+            對戶外的熱情，<br />從未改變
           </h2>
           <p className="text-earth-stone text-lg leading-relaxed mb-5">
-            楞先生 is a <strong className="text-cream font-semibold">family-owned outdoor store</strong> built
-            by passionate people who live and breathe the outdoors. For over 25 years, we have been equipping
-            adventurers — from weekend hikers to seasoned mountaineers — with gear they truly need.
+            楞先生是一間由對戶外充滿熱情的人所經營的<strong className="text-cream font-semibold">家族商店</strong>。二十五年來，我們為各種探險者提供真正需要的裝備——從週末健行者到資深登山好手。
           </p>
           <p className="text-earth-stone text-lg leading-relaxed mb-5">
-            Every brand on our shelves has been{' '}
-            <strong className="text-cream font-semibold">personally tested and approved</strong> across all
-            weather and conditions. We don't sell what we wouldn't wear ourselves.
+            架上每一個品牌，都經過我們<strong className="text-cream font-semibold">親身在各種天氣與環境中測試認證</strong>。我們只賣自己願意穿上身的裝備。
           </p>
           <p className="text-earth-stone text-lg leading-relaxed">
-            Come to us with a challenge — whether it's sub-zero peaks, monsoon trails, or multi-week
-            expeditions — and <strong className="text-cream font-semibold">we will find exactly what you need</strong>,
-            from head to toe.
+            無論是零下的山峰、颱風季的步道，還是多週的野外遠征，帶著你的挑戰來找我們，我們一定能為你<strong className="text-cream font-semibold">從頭到腳配備齊全</strong>。
           </p>
         </div>
       </div>

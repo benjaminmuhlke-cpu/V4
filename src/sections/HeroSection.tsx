@@ -17,15 +17,15 @@ export default function HeroSection() {
           style={{ filter: 'drop-shadow(0 6px 24px rgba(0,0,0,0.6))' }}
         />
         <p className="text-earth-stone tracking-[0.25em] uppercase text-sm md:text-base font-display italic">
-          Outdoor &amp; Technical Clothing
+          戶外機能服飾
         </p>
         <p className="text-earth-tan tracking-[0.15em] text-xs md:text-sm uppercase">
-          From Head to Toe — Tested for Every Condition
+          從頭到腳，全天候嚴選裝備
         </p>
       </div>
 
       <div className="absolute bottom-10 flex flex-col items-center gap-2 text-earth-stone">
-        <span className="text-xs tracking-[0.2em] uppercase">Discover</span>
+        <span className="text-xs tracking-[0.2em] uppercase">探索</span>
         <div className="w-px h-10 bg-gradient-to-b from-earth-tan to-transparent" />
       </div>
     </section>
