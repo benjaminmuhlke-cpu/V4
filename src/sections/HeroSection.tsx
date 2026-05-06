@@ -2,12 +2,17 @@ export default function HeroSection() {
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-8">
       <div
-        className="absolute inset-0 bg-cover bg-center"
+        className="absolute inset-0"
         style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1600&q=80')`,
+          background: `
+            radial-gradient(ellipse at 20% 50%, #2C4A2E 0%, transparent 55%),
+            radial-gradient(ellipse at 80% 20%, #4A3728 0%, transparent 50%),
+            radial-gradient(ellipse at 60% 80%, #1C1208 0%, transparent 60%),
+            linear-gradient(160deg, #1C1208 0%, #2C4A2E 40%, #4A3728 70%, #1C1208 100%)
+          `,
         }}
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-earth-dark/70 via-earth-dark/40 to-earth-dark/85" />
+      <div className="absolute inset-0" style={{ background: 'rgba(28,18,8,0.35)' }} />
 
       <div className="relative z-10 flex flex-col items-center gap-6">
         <img
