@@ -3,6 +3,7 @@ export default {
   darkMode: ['class'],
   content: [
     './index.html',
+    './itinerary.html',
     './src/**/*.{ts,tsx,js,jsx}',
   ],
   theme: {
