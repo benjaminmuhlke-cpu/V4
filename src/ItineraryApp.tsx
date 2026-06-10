@@ -336,6 +336,18 @@ const STAYS: Stay[] = [
   },
 ]
 
+// ─── Airport ──────────────────────────────────────────────────────────────────
+
+const AIRPORT = {
+  name: 'Olbia Airport (OLB)',
+  coords: [40.898, 9.518] as [number, number],
+  arrivalTo: 'Cannigione',
+  arrivalCoords: [41.083, 9.526] as [number, number],
+  arrivalDistance: '35 km',
+  arrivalTime: '~35 min',
+  arrivalNote: 'Via SS125 — straight drive, no tolls',
+}
+
 // ─── Activity badge config ─────────────────────────────────────────────────────
 
 const ACTIVITY = {
@@ -371,6 +383,21 @@ function makeDestIcon(color: string) {
     "></div>`,
     iconSize: [12, 12],
     iconAnchor: [6, 6],
+  })
+}
+
+function makeAirportIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:30px;height:30px;border-radius:8px;
+      background:#1C1208;border:2.5px solid white;
+      box-shadow:0 2px 8px rgba(0,0,0,0.5);
+      display:flex;align-items:center;justify-content:center;
+      font-size:15px;line-height:1;
+    ">✈️</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   })
 }
 
@@ -439,6 +466,25 @@ function MapView({ activeDayId, onMapReady }: MapViewProps) {
         markerLayersRef.current.set(day.id, group)
       })
     })
+
+    // Airport — always visible, never dimmed
+    L.marker(AIRPORT.coords, { icon: makeAirportIcon() })
+      .addTo(map)
+      .bindPopup(
+        `<b>${AIRPORT.name}</b><br>` +
+        `<b>→ ${AIRPORT.arrivalTo}:</b> ${AIRPORT.arrivalDistance} · ${AIRPORT.arrivalTime}<br>` +
+        `<small>${AIRPORT.arrivalNote}</small>`
+      )
+
+    // Arrival route line (OLB → Cannigione)
+    L.polyline([AIRPORT.coords, AIRPORT.arrivalCoords], {
+      color: '#1d6b9e',
+      weight: 2,
+      opacity: 0.6,
+      dashArray: '8 6',
+    }).addTo(map).bindPopup(
+      `<b>Arrival drive</b><br>${AIRPORT.arrivalDistance} · ${AIRPORT.arrivalTime}`
+    )
 
     mapRef.current = map
     onMapReady((center, zoom) => map.flyTo(center, zoom, { duration: 1.4 }))
@@ -572,6 +618,47 @@ function DayCard({ day, accent, isActive, onSelect }: DayCardProps) {
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/>
           </svg>
           Focus on map
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Arrival card ─────────────────────────────────────────────────────────────
+
+function ArrivalCard({ onFocus }: { onFocus: () => void }) {
+  return (
+    <div
+      className="rounded-xl overflow-hidden shadow-sm border border-earth-stone/40 mb-8"
+      style={{ background: '#fffef9' }}
+    >
+      <div className="h-1" style={{ background: '#1C1208' }} />
+      <div className="p-4 sm:p-5 flex items-start gap-4">
+        <div className="text-3xl leading-none pt-0.5">✈️</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-earth-dark">{AIRPORT.name}</div>
+          <div className="text-xs text-earth-tan mb-3">June 26 arrival · pick up rental car here</div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-earth-tan text-xs">To</span>
+              <span className="font-semibold text-earth-dark">{AIRPORT.arrivalTo}</span>
+              <span className="text-earth-stone">·</span>
+              <span className="text-earth-brown font-medium">{AIRPORT.arrivalDistance}</span>
+              <span className="text-earth-stone">·</span>
+              <span className="font-bold" style={{ color: '#1d6b9e' }}>{AIRPORT.arrivalTime}</span>
+            </div>
+          </div>
+          <div className="text-xs text-earth-tan mt-1">{AIRPORT.arrivalNote}</div>
+        </div>
+        <button
+          onClick={onFocus}
+          className="text-xs font-semibold shrink-0 flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity"
+          style={{ color: '#1d6b9e' }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/>
+          </svg>
+          Map
         </button>
       </div>
     </div>
@@ -757,6 +844,10 @@ export default function ItineraryApp() {
           {/* Legend */}
           <div className="flex flex-wrap gap-3 mt-3 justify-center">
             <div className="flex items-center gap-1.5 text-xs text-earth-brown">
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded text-[9px]" style={{ background: '#1C1208', color: 'white' }}>✈</span>
+              Olbia Airport
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-earth-brown">
               <span className="w-3 h-3 rounded-full" style={{ background: '#1d6b9e', border: '2px solid white' }} />
               Cannigione (Stay 1)
             </div>
@@ -772,6 +863,14 @@ export default function ItineraryApp() {
             ))}
           </div>
         </section>
+
+        {/* Arrival info */}
+        <ArrivalCard
+          onFocus={() => {
+            flyToRef.current?.(AIRPORT.coords, 11)
+            mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }}
+        />
 
         {/* Itinerary by stay */}
         {STAYS.map(stay => (
