@@ -1,0 +1,179 @@
+# Une marque = un objet. Ajouter une marque ici ne nécessite aucune
+# modification de code.
+#
+# scraper_type:
+#   static_html  -> scrapers/static.py (requests + BeautifulSoup)
+#   js_widget    -> scrapers/dynamic.py (JSON API du widget si possible, sinon Playwright)
+#   manual       -> pas de scraper, chiffre à obtenir par email/vérification humaine
+#
+# confidence (repris tel quel dans le rapport, cf. aggregate.py):
+#   haute    -> scraper statique fiable, filtre FSS testé et propre
+#   moyenne  -> scraper fonctionne mais filtre mono-marque/wholesale approximatif
+#   manuelle -> pas de scraper fiable
+
+- name: "Diptyque"
+  slug: diptyque
+  store_locator_url: "https://stores.diptyqueparis.com/en_us/all-addresses"
+  scraper_type: static_html
+  parser: diptyque
+  confidence: haute
+  notes: >
+    Page "all-addresses" donne directement un total par pays sous 4 blocs
+    régionaux (Europe / Middle East / Asia / North America) - pas besoin
+    d'extraire chaque adresse individuellement.
+
+- name: "Maison Francis Kurkdjian"
+  slug: mfk
+  store_locator_url: "https://www.franciskurkdjian.com/int-en/storelocator"
+  scraper_type: static_html
+  parser: mfk
+  confidence: moyenne
+  known_total: 21
+  notes: >
+    Salesforce Commerce Cloud, liste server-rendue (<li class="core-storelocator-item">)
+    mais mélange boutiques MFK et revendeurs multi-marques (parfumeries indépendantes,
+    grands magasins, duty free) - filtre par mot-clé sur le nom de la boutique
+    + known_retailers_blocklist.json. Pas de champ pays direct (seulement
+    ville + code postal) : le pays est déduit d'une table ville->pays repérée
+    à la main pour les boutiques MFK connues ; toute boutique non reconnue part
+    dans _a_verifier.csv plutôt que d'être classée au hasard.
+
+- name: "Juliette Has A Gun"
+  slug: jhag
+  store_locator_url: "https://www.juliettehasagun.com/en/pages/store-locator"
+  scraper_type: js_widget
+  parser: stockist
+  stockist_widget_tag: "u6705"
+  confidence: moyenne
+  notes: >
+    Widget Stockist (pas de scraping DOM/Playwright nécessaire) : le tag
+    "u6705" trouvé dans le HTML (data-stockist-widget-tag) permet d'appeler
+    directement https://stockist.co/api/v1/u6705/locations/search avec un
+    quadrillage de coordonnées (latitude/longitude/radius) pour couvrir le
+    monde. Mélange boutiques JHAG et revendeurs (Sephora...) - même filtre
+    nom-de-marque que MFK. Le champ "country" renvoyé par l'API est parfois
+    vide -> fallback ville/code postal comme pour MFK.
+
+- name: "Maison Margiela"
+  slug: margiela
+  store_locator_url: "https://www.maisonmargiela.com/en-us/stores"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Boutiques de mode généralistes (Man/Woman/Fragrances), pas de FSS parfum
+    dédié identifié - à confirmer avec l'équipe régionale plutôt qu'à scraper.
+
+# --- Marques ci-dessous : URL trouvée et vérifiée en direct (curl) le
+# 2026-07-16. Les sites changent sans prévenir - si un scraper échoue,
+# revérifier l'URL et la structure avant de suspecter le code. ---
+
+- name: "Parfums de Marly"
+  slug: pdm
+  store_locator_url: "https://us.parfums-de-marly.com/pages/store-locator"
+  scraper_type: js_widget
+  parser: stockist
+  stockist_widget_tag: "u13979"
+  confidence: moyenne
+  known_total: 24
+  notes: >
+    Widget Stockist confirmé en direct (tag u13979, requête Paris OK).
+    L'échantillon vu ne contient qu'un seul filtre "PDM Boutiques" (pas de
+    mélange wholesale visible sur l'échantillon testé) mais le site répond
+    parfois 503 aux requêtes automatisées (protection anti-bot Shopify) -
+    prévoir des tentatives espacées plutôt qu'un raise immédiat.
+
+- name: "Amouage"
+  slug: amouage
+  store_locator_url: "https://amouage.com/pages/store-locator"
+  scraper_type: js_widget
+  parser: stockist
+  stockist_widget_tag: "u24895"
+  confidence: moyenne
+  known_total: 30
+  notes: >
+    Widget Stockist confirmé en direct (tag u24895). Explique probablement
+    l'écart 20 vs 30 : la liste Stockist inclut des points qui ne sont pas
+    des boutiques (ex. "Amouage Manufacture and Visitor's Centre" à Muscat,
+    une usine/showroom) à côté des vraies boutiques taguées "Amouage
+    Boutique" - filtre par mot-clé sur le nom nécessaire, à approfondir
+    avant de faire confiance au total brut.
+
+- name: "Creed"
+  slug: creed
+  store_locator_url: "https://creedboutique.com/pages/store-locator-new"
+  scraper_type: js_widget
+  parser: stockist
+  stockist_widget_tag: "u18812"
+  confidence: manuelle
+  known_total: 59
+  notes: >
+    Deux sites officiels distincts trouvés, ce qui explique probablement
+    l'écart 40 vs 59 : creedboutique.com (widget Stockist, tag u18812,
+    confirmé en direct) mais très majoritairement des revendeurs
+    multi-marques (Saks, Cos Bar, Osswald, Bloomingdale's...) sous un même
+    filtre "Retail Locations" - le signal boutique-en-propre y est faible.
+    L'autre site, creedfragrance.com/store-locator, n'utilise pas Stockist
+    et n'a pas d'API identifiée sans exécuter son JS (recherche par code
+    postal obligatoire, pas de liste par défaut). A traiter en manuel
+    jusqu'à trouver un filtre fiable sur l'un des deux.
+
+- name: "Nishane"
+  slug: nishane
+  store_locator_url: "https://nishane.com/boutiques/"
+  scraper_type: static_html
+  parser: nishane
+  confidence: haute
+  known_total: 13
+  notes: >
+    HTML statique vérifié en direct et testé bout-en-bout : 12 boutiques
+    ouvertes (widgets Elementor "wd-info-box") + Abu Dhabi marquée "Coming
+    Soon" (exclue du scraper, pas encore ouverte) = 13 au total, cohérent
+    avec known_total. La boutique de Doha est physiquement dans un grand
+    magasin Printemps mais reste listée par NISHANE elle-même comme sa
+    boutique - le blocklist ne la filtre pas (il ne matche que sur le nom de
+    la boutique, pas l'adresse), ce qui donne 12/13 et pas 11/13. Semble
+    correct au vu du known_total ; à confirmer si le chiffre de la BIBLE
+    exclut ce genre de corner.
+
+- name: "L'Artisan Parfumeur"
+  slug: artisan_parfumeur
+  store_locator_url: "https://www.artisanparfumeur.com/us/en_US/store-finder"
+  scraper_type: manual
+  confidence: manuelle
+  known_total: 16
+  notes: >
+    Vérifié en direct : la page US ne renvoie qu'une coquille JS vide (pas
+    de HTML statique avec les boutiques, contrairement à une première
+    recherche qui suggérait un rendu serveur - à ne pas prendre pour
+    argent comptant sans revérifier). Nécessiterait Playwright ou de
+    trouver l'appel JSON derrière ; laissé en manuel pour l'instant plutôt
+    que de construire un scraper sur une hypothèse non confirmée.
+
+- name: "Penhaligon's"
+  slug: penhaligons
+  store_locator_url: "https://www.penhaligons.com/us/en/store-finder"
+  scraper_type: manual
+  confidence: manuelle
+  known_total: 31
+  notes: >
+    SPA Angular, aucune donnée dans le HTML brut. Une API interne
+    (api.penhaligons.com) est référencée dans le bundle JS mais son
+    endpoint exact n'a pas pu être confirmé sans exécuter le JS. Le site
+    semble aussi être décliné par pays (bandeau "US site") plutôt qu'une
+    liste mondiale unique. A vérifier manuellement / par les équipes
+    régionales pour l'instant.
+
+- name: "Caron"
+  slug: caron
+  store_locator_url: "https://www.parfumscaron.com/en/pages/nos_boutiques"
+  scraper_type: static_html
+  parser: caron
+  confidence: moyenne
+  known_total: 3
+  notes: >
+    HTML statique vérifié en direct : 4 boutiques listées par la marque
+    elle-même (Saint-Honoré, François 1er, Printemps Haussmann, Dubaï).
+    known_total=3 suggère que Printemps Haussmann (grand magasin) est
+    exclue côté BIBLE comme un corner et non une FSS - le blocklist
+    multi-marques devrait la filtrer automatiquement ; vérifier dans
+    _a_verifier.csv que c'est bien elle qui saute.

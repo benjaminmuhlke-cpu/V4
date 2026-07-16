@@ -1,0 +1,11 @@
+requests>=2.31
+beautifulsoup4>=4.12
+PyYAML>=6.0
+python-dotenv>=1.0
+openpyxl>=3.1
+
+# Only needed for scraper_type: js_widget brands that (unlike Stockist) expose
+# no JSON API and truly require rendering the page. Run `playwright install
+# chromium` once after installing this. Not required for the brands currently
+# in brands.yaml.
+playwright>=1.40

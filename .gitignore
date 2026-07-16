@@ -3,3 +3,19 @@ dist/
 .claude/settings.local.json
 *.local
 .DS_Store
+
+# competition-tracker (Python)
+competition-tracker/.env
+competition-tracker/__pycache__/
+competition-tracker/**/__pycache__/
+competition-tracker/venv/
+competition-tracker/data/snapshots/*.json
+competition-tracker/photos/**/*.jpg
+competition-tracker/photos/**/*.jpeg
+competition-tracker/photos/**/*.png
+competition-tracker/photos/**/*.txt
+competition-tracker/*.csv
+competition-tracker/*.xlsx
+competition-tracker/drafts/
+!competition-tracker/data/snapshots/.gitkeep
+!competition-tracker/photos/.gitkeep
