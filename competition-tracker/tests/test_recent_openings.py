@@ -143,7 +143,10 @@ def test_opening_source_within_60_days_is_included():
     assert summary.recent_openings_found == 1
 
 
-def test_old_announcement_goes_to_to_verify():
+def test_old_announcement_is_excluded_not_to_verify():
+    """A known opening date outside the recent window is a resolved fact,
+    not an open question - it must be excluded outright, never parked in
+    TO VERIFY (TO VERIFY is reserved for unknown-date candidates only)."""
     recent_rows, verify_rows, summary = build_recent_openings_rows(
         [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
@@ -151,9 +154,24 @@ def test_old_announcement_goes_to_to_verify():
         checked_date=date(2026, 7, 17),
     )
     assert recent_rows == []
-    assert len(verify_rows) == 1
-    assert verify_rows[0]["REASON TO VERIFY"] == "opening source is older than the recent window"
-    assert summary.to_verify_count == 1
+    assert verify_rows == []
+    assert summary.to_verify_count == 0
+    assert summary.excluded_old_openings == 1
+
+
+def test_known_old_date_from_a_source_below_priority_threshold_is_still_excluded_not_to_verify():
+    """Even when the source itself is too weak to promote to RECENT
+    OPENINGS, a known-but-old date must not be reported as if the date
+    were unknown."""
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(source_date="2026-04-01", source_type="unlisted_source_type")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert recent_rows == []
+    assert verify_rows == []
+    assert summary.excluded_old_openings == 1
 
 
 def test_unknown_opening_date_goes_to_to_verify():

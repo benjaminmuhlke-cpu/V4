@@ -76,6 +76,7 @@ class PipelineSummary:
     to_verify_count: int
     excluded_non_fss_fsf: int
     excluded_in_bible: int
+    excluded_old_openings: int = 0
     recent_openings_by_brand: dict[str, int] = field(default_factory=dict)
     to_verify_by_brand: dict[str, int] = field(default_factory=dict)
     source_links_used: tuple[str, ...] = ()
@@ -232,15 +233,13 @@ def _store_from_entry(entry: dict) -> dict:
     }
 
 
-def _candidate_reason(best_entry: dict, checked_date: date, recent_days: int) -> str | None:
+def _candidate_reason(best_entry: dict) -> str | None:
+    """Only ever called once every matched entry's opening date is unknown
+    (see process_candidate) - so a known-but-old date is never described
+    here as "to verify"; it's excluded entirely instead."""
     if _source_priority(best_entry) >= 99:
         return "source type is below the accepted priority threshold"
-    opening_date = _parse_source_date(best_entry.get("source_date"))
-    if opening_date is None:
-        return "opening source has no date"
-    if not _is_within_recent_days(opening_date, checked_date, recent_days):
-        return "opening source is older than the recent window"
-    return "source requires manual verification"
+    return "opening source has no date"
 
 
 def _selected_brand_map(results: list[dict]) -> dict[str, str]:
@@ -269,6 +268,7 @@ def build_recent_openings_rows(
     source_links_used: set[str] = set()
     excluded_non_fss_fsf = 0
     excluded_in_bible = 0
+    excluded_old_openings = 0
 
     selected_brands = _selected_brand_map(results)
     entries = [entry for entry in research_cache.get("entries", []) if brand_match_key(entry.get("brand")) in selected_brands]
@@ -276,7 +276,7 @@ def build_recent_openings_rows(
     counted_bible_exclusions: set[tuple[str, str, str, str]] = set()
 
     def process_candidate(brand_name: str, store: dict, matched_entries: list[dict]) -> None:
-        nonlocal excluded_non_fss_fsf, excluded_in_bible
+        nonlocal excluded_non_fss_fsf, excluded_in_bible, excluded_old_openings
 
         if not matched_entries:
             return
@@ -335,7 +335,17 @@ def build_recent_openings_rows(
             processed_candidates.add(candidate_key)
             return
 
-        reason = _candidate_reason(best_entry, checked_date, recent_days)
+        # TO VERIFY is only for candidates whose opening date is still
+        # unknown. A known date that didn't qualify above (outside the
+        # recent window, or reported by a source too weak to promote) is a
+        # resolved fact, not an open question - it must never sit in TO
+        # VERIFY. It simply isn't a recent opening to report.
+        if any(_parse_source_date(entry.get("source_date")) is not None for entry in matched_entries):
+            excluded_old_openings += 1
+            processed_candidates.add(candidate_key)
+            return
+
+        reason = _candidate_reason(best_entry)
         if reason is None:
             return
 
@@ -374,6 +384,7 @@ def build_recent_openings_rows(
         to_verify_count=len(verify_rows),
         excluded_non_fss_fsf=excluded_non_fss_fsf,
         excluded_in_bible=excluded_in_bible,
+        excluded_old_openings=excluded_old_openings,
         recent_openings_by_brand=dict(sorted(recent_by_brand.items())),
         to_verify_by_brand=dict(sorted(verify_by_brand.items())),
         source_links_used=tuple(sorted(source_links_used)),

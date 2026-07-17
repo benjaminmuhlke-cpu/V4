@@ -181,6 +181,7 @@ def main() -> int:
     print(f"Candidates placed in TO VERIFY: {summary.to_verify_count}")
     print(f"Candidates excluded because they already exist in the BIBLE: {summary.excluded_in_bible}")
     print(f"Locations excluded as non-FSS/FSF: {summary.excluded_non_fss_fsf}")
+    print(f"Candidates excluded as old openings (known date outside the window): {summary.excluded_old_openings}")
     print(f"Output file: {output_path}")
     return 0
 
