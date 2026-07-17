@@ -18,6 +18,11 @@ from scrapers.static import USER_AGENT, REQUEST_DELAY_SECONDS, TIMEOUT_SECONDS, 
 
 STOCKIST_SEARCH_URL = "https://stockist.co/api/v1/{tag}/locations/search"
 STOCKIST_SEARCH_RADIUS_KM = 250
+# Stockist widgets are commonly configured with max_results=100 (confirmed
+# in JHAG's and Parfums de Marly's widget.js); a single grid point returning
+# close to that many locations means real matches were likely cut off, not
+# that we exhaustively found everything near that point.
+STOCKIST_LIKELY_CAP = 90
 
 # One point per major retail metro area, wide enough to reach every region in
 # the brief's taxonomy (EMEA / UK / NOAM / LATAM / CHINA / APAC) at a 250km
@@ -45,17 +50,22 @@ WORLD_CITY_GRID = [
 ]
 
 
-def scrape_stockist(widget_tag: str, referer_url: str) -> list[dict]:
+def scrape_stockist(widget_tag: str, referer_url: str) -> tuple[list[dict], bool]:
     """Query the Stockist JSON API across WORLD_CITY_GRID and return the
     de-duplicated union of locations found.
 
-    Returns a list of {"name", "address", "city", "country", "count": 1, "source"}.
-    Country may be None (Stockist doesn't always fill it in) - resolved
-    downstream in aggregate.py same as MFK.
+    Returns (records, partial). Each record is
+    {"name", "address", "city", "country", "count": 1, "source"} - country
+    may be None (Stockist doesn't always fill it in), resolved downstream in
+    aggregate.py same as MFK. partial is True if any single grid point came
+    back at/near STOCKIST_LIKELY_CAP results, meaning some matches near that
+    point were probably clipped rather than genuinely absent - closure
+    detection should not trust a scrape flagged this way.
     """
     seen_ids: set[int] = set()
     records: list[dict] = []
     failures = 0
+    partial = False
 
     for city_label, lat, lon in WORLD_CITY_GRID:
         time.sleep(REQUEST_DELAY_SECONDS)
@@ -72,7 +82,11 @@ def scrape_stockist(widget_tag: str, referer_url: str) -> list[dict]:
             failures += 1
             continue
 
-        for loc in payload.get("locations", []):
+        locations = payload.get("locations", [])
+        if len(locations) >= STOCKIST_LIKELY_CAP:
+            partial = True
+
+        for loc in locations:
             loc_id = loc.get("id")
             if loc_id in seen_ids:
                 continue
@@ -91,7 +105,7 @@ def scrape_stockist(widget_tag: str, referer_url: str) -> list[dict]:
             f"Stockist widget '{widget_tag}' returned zero locations across "
             f"{len(WORLD_CITY_GRID)} grid points ({failures} failed) - check the tag is still valid"
         )
-    return records
+    return records, partial
 
 
 def scrape_dynamic_playwright(url: str, item_selector: str, name_selector: str | None = None) -> list[dict]:

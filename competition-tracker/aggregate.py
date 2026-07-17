@@ -173,17 +173,21 @@ def aggregate_country_counts(records: list[dict]) -> tuple[dict, list[dict]]:
     return totals, verify_rows
 
 
-def _run_scraper(brand: dict) -> list[dict]:
+def _run_scraper(brand: dict) -> tuple[list[dict], bool]:
+    """Returns (records, partial). partial is True when the scraper itself
+    knows its coverage may be clipped (currently only Stockist, which hits a
+    per-query result cap) - static-HTML parsers always return a full page,
+    so partial is always False for them."""
     parser = brand.get("parser")
     if brand["scraper_type"] == "static_html":
         if parser == "diptyque":
-            return scrape_diptyque(brand["store_locator_url"])
+            return scrape_diptyque(brand["store_locator_url"]), False
         if parser == "mfk":
-            return scrape_mfk(brand["store_locator_url"])
+            return scrape_mfk(brand["store_locator_url"]), False
         if parser == "nishane":
-            return scrape_nishane(brand["store_locator_url"])
+            return scrape_nishane(brand["store_locator_url"]), False
         if parser == "caron":
-            return scrape_caron(brand["store_locator_url"])
+            return scrape_caron(brand["store_locator_url"]), False
         raise ScraperError(f"no static_html parser registered for '{parser}'")
     if brand["scraper_type"] == "js_widget":
         if parser == "stockist":
@@ -207,6 +211,7 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
         "total": 0,
         "verify_rows": [],
         "stores": [],
+        "partial": False,
     }
 
     if brand["scraper_type"] == "manual":
@@ -215,11 +220,13 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
         return result
 
     try:
-        records = _run_scraper(brand)
+        records, partial = _run_scraper(brand)
     except ScraperError as exc:
         result["status"] = "error"
         result["error"] = str(exc)
         return result
+
+    result["partial"] = partial
 
     if brand.get("parser") == "diptyque":
         totals, verify_rows = aggregate_country_counts(records)

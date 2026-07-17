@@ -9,3 +9,6 @@ openpyxl>=3.1
 # chromium` once after installing this. Not required for the brands currently
 # in brands.yaml.
 playwright>=1.40
+
+# Tests (tests/) - not needed to run run_report.py itself.
+pytest>=7.4
