@@ -1,134 +1,269 @@
-from diff_existing import build_bible_index
-from recent_openings import find_recent_openings
+from datetime import date
 
-BIBLE_ROWS = [
-    {"BRAND": "Parfums de Marly", "COUNTRY": "France", "CITY": "Paris",
-     "DOOR NAME": "Parfums de Marly Le Marais", "DOOR TYPE": "FSS", "DOOR COUNT": 1},
-]
+import openpyxl
+
+from recent_openings import (
+    RECENT_OPENINGS_COLUMNS,
+    RECENT_OPENINGS_SHEET,
+    TO_VERIFY_COLUMNS,
+    TO_VERIFY_SHEET,
+    build_recent_openings_rows,
+    write_recent_openings_workbook,
+)
 
 
-def _cache(entries):
-    return {"entries": entries}
+def _brand_result(brand="Maison Francis Kurkdjian", slug="mfk", stores=None, status="ok"):
+    return {
+        "brand": brand,
+        "slug": slug,
+        "status": status,
+        "stores": stores or [],
+    }
+
+
+def _store(name="Maison Francis Kurkdjian Houston", address="4444 Westheimer Rd", city="Houston", country="United States"):
+    return {
+        "name": name,
+        "address": address,
+        "city": city,
+        "country": country,
+        "region": "NOAM",
+    }
 
 
 def _entry(**overrides):
-    entry = {
-        "brand": "Amouage",
+    base = {
+        "brand": "Maison Francis Kurkdjian",
         "region": "NOAM",
         "country": "United States",
-        "city": "Beverly Hills",
-        "store_name": "Amouage Beverly Hills - The Wadi",
-        "address": "311 North Beverly Drive, Beverly Hills, CA 90210",
-        "url": "https://amouage.com/pages/store-locator",
-        "source_type": "official_site",
-        "source_date": "2026-06-18",
+        "city": "Houston",
+        "store_name": "Maison Francis Kurkdjian Houston",
+        "address": "4444 Westheimer Rd",
+        "url": "https://example.com/opening",
+        "source_title": "Opening News",
+        "source_domain": "example.com",
+        "source_type": "industry_publication",
+        "source_date": "2026-07-01",
         "store_classification": "FSS",
-        "confidence": "high",
-        "evidence": "Official locator lists the address.",
+        "confidence": "medium",
         "status": "CONFIRMED",
+        "verification_notes": "Verified",
+        "evidence": "Evidence",
     }
-    entry.update(overrides)
-    return entry
+    base.update(overrides)
+    return base
 
 
-def test_dated_confirmed_opening_absent_from_bible_is_included():
-    bible_index = build_bible_index(BIBLE_ROWS)
-    opened, to_verify = find_recent_openings(_cache([_entry()]), bible_index)
-    assert len(opened) == 1
-    assert opened[0]["BRAND"] == "Amouage"
-    assert opened[0]["OPENING_EVIDENCE_DATE"] == "2026-06-18"
-    assert to_verify == []
-
-
-def test_dated_confirmed_opening_already_in_bible_is_excluded():
-    bible_index = build_bible_index(BIBLE_ROWS)
-    entry = _entry(
-        brand="Parfums de Marly", country="France", city="Paris",
-        store_name="Parfums de Marly Le Marais",
+def test_store_already_in_bible_is_excluded():
+    results = [_brand_result(stores=[_store()])]
+    bible_index = {
+        "by_door_key": {
+            ("maison francis kurkdjian", "united states", "houston", "maison francis kurkdjian houston"): [{}],
+        }
+    }
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results,
+        bible_index,
+        {"entries": [_entry()]},
+        checked_date=date(2026, 7, 17),
     )
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert opened == []
-    assert to_verify == []  # already tracked, dated - nothing left to report
+    assert recent_rows == []
+    assert verify_rows == []
+    assert summary.recent_openings_found == 0
+    assert summary.excluded_in_bible == 1
 
 
-def test_undated_entry_goes_to_still_to_verify_even_when_already_in_bible():
-    """Mirrors MFK Miami: a real, confirmed door already in the BIBLE but
-    with no dated opening evidence - must not be silently dropped just
-    because it's already tracked."""
-    bible_index = build_bible_index([
-        {"BRAND": "MFK", "COUNTRY": "United States", "CITY": "Miami",
-         "DOOR NAME": "MFK Miami Design District", "DOOR TYPE": "FSS", "DOOR COUNT": 1},
-    ])
-    entry = _entry(
-        brand="MFK", country="United States", city="Miami",
-        store_name="Maison Francis Kurkdjian - Miami Design District",
-        source_date=None,
+def test_department_store_is_excluded():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(store_classification="department store")]},
+        checked_date=date(2026, 7, 17),
     )
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert opened == []
-    assert len(to_verify) == 1
-    assert to_verify[0]["STATUS"] == "TO VERIFY"
-    assert to_verify[0]["BRAND"] == "MFK"
+    assert recent_rows == []
+    assert verify_rows == []
+    assert summary.excluded_non_fss_fsf == 1
 
 
-def test_undated_entry_absent_from_bible_also_goes_to_still_to_verify():
-    bible_index = build_bible_index([])
-    entry = _entry(source_date=None)
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert opened == []
-    assert len(to_verify) == 1
-    assert to_verify[0]["ALREADY_IN_BIBLE"] is False
+def test_perfumery_is_excluded():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(store_classification="wholesale")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert recent_rows == []
+    assert verify_rows == []
+    assert summary.excluded_non_fss_fsf == 1
 
 
-def test_bare_to_verify_status_without_date_is_never_promoted():
-    bible_index = build_bible_index([])
-    entry = _entry(status="TO VERIFY", source_date=None)
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert opened == []
-    assert len(to_verify) == 1
+def test_opening_source_within_60_days_is_included():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(source_date="2026-07-10")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert recent_rows[0]["OPENING DATE"] == "2026-07-10"
+    assert summary.recent_openings_found == 1
 
 
-def test_non_fss_classification_is_out_of_scope_entirely():
-    bible_index = build_bible_index([])
-    entry = _entry(store_classification="wholesale")
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert opened == []
-    assert to_verify == []  # not a monobrand door - not our concern here
+def test_old_announcement_goes_to_to_verify():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(source_date="2026-04-01")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert recent_rows == []
+    assert len(verify_rows) == 1
+    assert verify_rows[0]["REASON TO VERIFY"] == "opening source is older than the recent window"
+    assert summary.to_verify_count == 1
 
 
-def test_probable_status_with_date_still_counts_as_an_opening():
-    bible_index = build_bible_index([])
-    entry = _entry(status="PROBABLE")
-    opened, to_verify = find_recent_openings(_cache([entry]), bible_index)
-    assert len(opened) == 1
-    assert opened[0]["STATUS"] == "PROBABLE"
+def test_unknown_opening_date_goes_to_to_verify():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(source_date=None)]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert recent_rows == []
+    assert len(verify_rows) == 1
+    assert verify_rows[0]["REASON TO VERIFY"] == "opening source has no date"
+    assert summary.to_verify_count == 1
 
 
-def test_discovery_route_a_when_scraper_independently_found_the_door():
-    bible_index = build_bible_index([])
-    entry = _entry(store_name="Parfums de Marly, Boutique Marais", brand="Parfums de Marly",
-                    country="France", city="Paris")
-    results = [{
-        "brand": "Parfums de Marly", "status": "ok",
-        "stores": [{"name": "Parfums de Marly, Boutique Marais"}],
-    }]
-    opened, _ = find_recent_openings(_cache([entry]), bible_index, results)
-    assert len(opened) == 1
-    assert opened[0]["DISCOVERY_ROUTE"].startswith("A")
+def test_duplicate_boutiques_are_removed():
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        [_brand_result(stores=[_store(), _store()])],
+        {"by_door_key": {}},
+        {"entries": [_entry(), _entry(source_title="Backup Source")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert summary.recent_openings_found == 1
 
 
-def test_discovery_route_b_when_scraper_never_returned_the_door():
-    bible_index = build_bible_index([])
-    entry = _entry()
-    results = [{"brand": "Amouage", "status": "ok", "stores": [{"name": "Some Other Door"}]}]
-    opened, _ = find_recent_openings(_cache([entry]), bible_index, results)
-    assert len(opened) == 1
-    assert opened[0]["DISCOVERY_ROUTE"].startswith("B")
+def test_recent_official_announcement_absent_from_bible_is_included_without_store_locator_match():
+    results = [_brand_result(brand="Byredo", slug="byredo", stores=[])]
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results,
+        {"by_door_key": {}},
+        {"entries": [_entry(
+            brand="Byredo",
+            region="APAC",
+            country="Hong Kong",
+            city="Hong Kong",
+            store_name="Byredo Gough Street",
+            address="2-10 Gough Street, Hong Kong",
+            url="https://example.com/byredo",
+            source_title="Byredo Opens New Boutique",
+            source_type="official_brand_newsroom",
+            source_date="2026-07-10",
+            store_classification="FSS",
+            confidence="high",
+            verification_notes="Official opening post",
+        )]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert recent_rows[0]["BRAND"] == "Byredo"
+    assert summary.recent_openings_by_brand == {"Byredo": 1}
 
 
-def test_missing_store_name_or_brand_is_skipped_defensively():
-    bible_index = build_bible_index([])
-    entries = [_entry(store_name=None), _entry(brand=None)]
-    opened, to_verify = find_recent_openings(_cache(entries), bible_index)
-    assert opened == []
-    assert to_verify == []
+def test_credible_mall_or_landlord_announcement_is_included():
+    results = [_brand_result(stores=[])]
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results,
+        {"by_door_key": {}},
+        {"entries": [_entry(
+            city="Miami",
+            store_name="Maison Francis Kurkdjian - Miami Design District",
+            address="176 NE 41st St, Miami, FL",
+            url="https://example.com/mall",
+            source_title="Miami Design District",
+            source_type="official_mall_landlord_directory",
+            source_date="2026-07-05",
+            store_classification="FSS",
+            confidence="high",
+            verification_notes="Official landlord directory",
+        )]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert summary.recent_openings_found == 1
+
+
+def test_workbook_has_both_sheets_and_required_columns(tmp_path):
+    output_path = tmp_path / "recent_openings.xlsx"
+    write_recent_openings_workbook([{
+        "BRAND": "Maison Francis Kurkdjian",
+        "REGION": "NOAM",
+        "COUNTRY": "United States",
+        "CITY": "Houston",
+        "DOOR NAME": "Maison Francis Kurkdjian Houston",
+        "FULL ADDRESS": "4444 Westheimer Rd",
+        "DOOR TYPE": "FSS",
+        "OPENING DATE": "2026-07-01",
+        "SOURCE": "Opening News",
+        "SOURCE URL": "https://example.com/opening",
+        "DATE CHECKED": "2026-07-17",
+        "NOTES": "Verified",
+    }], [{
+        "BRAND": "Creed",
+        "REGION": "EMEA",
+        "COUNTRY": "France",
+        "CITY": "Paris",
+        "DOOR NAME": "Creed Paris",
+        "FULL ADDRESS": "38 Avenue Pierre 1er de Serbie",
+        "REASON TO VERIFY": "opening source has no date",
+        "SOURCE": "Listing",
+        "SOURCE URL": "https://example.com/verify",
+        "DATE CHECKED": "2026-07-17",
+        "NOTES": "Check",
+    }], output_path)
+
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        assert workbook.sheetnames == [RECENT_OPENINGS_SHEET, TO_VERIFY_SHEET]
+        recent_sheet = workbook[RECENT_OPENINGS_SHEET]
+        verify_sheet = workbook[TO_VERIFY_SHEET]
+        assert [cell.value for cell in recent_sheet[1]] == RECENT_OPENINGS_COLUMNS
+        assert [cell.value for cell in verify_sheet[1]] == TO_VERIFY_COLUMNS
+        assert recent_sheet.freeze_panes == "A2"
+        assert recent_sheet.auto_filter.ref == recent_sheet.dimensions
+    finally:
+        workbook.close()
+
+
+def test_hyperlinks_are_clickable(tmp_path):
+    output_path = tmp_path / "recent_openings.xlsx"
+    write_recent_openings_workbook([{
+        "BRAND": "Maison Francis Kurkdjian",
+        "REGION": "NOAM",
+        "COUNTRY": "United States",
+        "CITY": "Houston",
+        "DOOR NAME": "Maison Francis Kurkdjian Houston",
+        "FULL ADDRESS": "4444 Westheimer Rd",
+        "DOOR TYPE": "FSS",
+        "OPENING DATE": "2026-07-01",
+        "SOURCE": "Opening News",
+        "SOURCE URL": "https://example.com/opening",
+        "DATE CHECKED": "2026-07-17",
+        "NOTES": "Verified",
+    }], [], output_path)
+
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        cell = workbook[RECENT_OPENINGS_SHEET]["J2"]
+        assert cell.value == "https://example.com/opening"
+        assert cell.hyperlink is not None
+        assert cell.hyperlink.target == "https://example.com/opening"
+    finally:
+        workbook.close()

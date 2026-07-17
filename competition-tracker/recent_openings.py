@@ -1,132 +1,414 @@
-"""Etape (recent openings): surfaces confirmed newly-opened FSS/FSF doors so
-they can be added to the BIBLE, using data/online_research_cache.json as the
-evidence source (see online_research.py's module docstring for why that's a
-curated cache rather than a live search).
-
-Two independent discovery routes feed the same check - neither gates the
-other, and a finding never has to come from both:
-
-  A. store-locator candidate -> recent-opening evidence: the scraper already
-     returned this door (results[i]["stores"]) and online research
-     separately dates its opening.
-  B. recent-opening announcement -> official locator + BIBLE check: a dated,
-     credible cache entry, whether or not the scraper's own coverage
-     happened to include the same door (a fixed seed list, a paginated
-     locator, a blocked request, or a city-name mismatch between sources can
-     all cause the scraper to miss a real door - that is not a reason to
-     miss the opening too).
-
-A cache entry becomes a RECENT OPENING row only when ALL of:
-  - store_classification is FSS or FSF (never counters/wholesale/online -
-    an opening of a department-store corner is not what this feeds)
-  - status is CONFIRMED or PROBABLE (never a bare "TO VERIFY" cache entry -
-    see the source-confidence rules in online_research.py)
-  - it carries a dated source_date (an "opening" is only "recent" if it is
-    dated - an undated "this store exists" finding is not opening evidence)
-  - the exact door is not already in the BIBLE (checked with the same
-    (brand, country, city, door name) key diff_existing.py uses everywhere
-    else, so "already tracked" means the same thing across the whole tool)
-
-A cache entry that identifies a real, credible store but has no dated
-opening evidence (or isn't yet CONFIRMED/PROBABLE) is never silently
-promoted or silently dropped - it always comes back in the second list,
-still_to_verify_rows, regardless of whether that door is already in the
-BIBLE. Being in the BIBLE only ever suppresses the RECENT OPENING row (it's
-not "new"); it never suppresses the "needs a dated source" note, because
-those are two different questions.
-"""
-
 from __future__ import annotations
 
-from diff_existing import _door_key
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
+
+import openpyxl
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+
+from brand_aliases import brand_match_key
+from diff_existing import _door_key, build_bible_index, filter_bible_rows, load_bible_competition
 from normalize import normalize
+from online_research import CACHE_PATH_DEFAULT, load_cache
 
-RECENT_OPENING_COLUMNS = [
-    "BRAND", "REGION", "COUNTRY", "CITY", "STORE_NAME", "ADDRESS", "DOOR_TYPE",
-    "OPENING_EVIDENCE_DATE", "SOURCE_URL", "SOURCE_TYPE", "CONFIDENCE", "STATUS",
-    "DISCOVERY_ROUTE", "EVIDENCE",
+RECENT_OPENINGS_SHEET = "RECENT OPENINGS"
+TO_VERIFY_SHEET = "TO VERIFY"
+
+RECENT_OPENINGS_COLUMNS = [
+    "BRAND",
+    "REGION",
+    "COUNTRY",
+    "CITY",
+    "DOOR NAME",
+    "FULL ADDRESS",
+    "DOOR TYPE",
+    "OPENING DATE",
+    "SOURCE",
+    "SOURCE URL",
+    "DATE CHECKED",
+    "NOTES",
 ]
 
-STILL_TO_VERIFY_COLUMNS = [
-    "BRAND", "REGION", "COUNTRY", "CITY", "STORE_NAME", "ADDRESS",
-    "ALREADY_IN_BIBLE", "STATUS", "REASON",
+TO_VERIFY_COLUMNS = [
+    "BRAND",
+    "REGION",
+    "COUNTRY",
+    "CITY",
+    "DOOR NAME",
+    "FULL ADDRESS",
+    "REASON TO VERIFY",
+    "SOURCE",
+    "SOURCE URL",
+    "DATE CHECKED",
+    "NOTES",
 ]
 
-_OPENING_CLASSIFICATIONS = ("FSS", "FSF")
-_OPENING_STATUSES = ("CONFIRMED", "PROBABLE")
+RECENT_SOURCE_TYPES = {
+    "official_brand_website": 1,
+    "official_brand_newsroom": 1,
+    "official_brand_store_page": 1,
+    "official_verified_brand_social_post": 2,
+    "official_mall_landlord_directory": 3,
+    "official_mall_landlord_website": 3,
+    "official_airport_website": 3,
+    "official_shopping_centre_website": 3,
+    "industry_publication": 4,
+    "beauty_publication": 4,
+    "luxury_publication": 4,
+    "retail_publication": 4,
+    "travel_retail_publication": 4,
+    "local_publication": 4,
+}
+
+ALLOWED_DOOR_TYPES = {"FSS", "FSF"}
+RECENT_OPENING_STATUSES = {"CONFIRMED", "PROBABLE"}
+VERIFYABLE_STATUSES = {"CONFIRMED", "PROBABLE", "TO VERIFY"}
+ROW_KEY_FIELDS = ("BRAND", "COUNTRY", "CITY", "DOOR NAME")
 
 
-def _scraped_names_by_brand(results: list[dict] | None) -> dict[str, set[str]]:
-    """{brand name lower: {normalized scraped store names}} - used only to
-    label which discovery route a finding came through, never to gate
-    whether it counts (see module docstring)."""
-    by_brand: dict[str, set[str]] = {}
-    for brand in results or []:
-        if brand.get("status") != "ok" or not brand.get("stores"):
+@dataclass(frozen=True)
+class PipelineSummary:
+    brands_checked: int
+    recent_openings_found: int
+    to_verify_count: int
+    excluded_non_fss_fsf: int
+    excluded_in_bible: int
+    recent_openings_by_brand: dict[str, int] = field(default_factory=dict)
+    to_verify_by_brand: dict[str, int] = field(default_factory=dict)
+    source_links_used: tuple[str, ...] = ()
+
+
+def _parse_source_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _is_within_recent_days(opening_date: date | None, checked_date: date, recent_days: int) -> bool:
+    if opening_date is None:
+        return False
+    earliest = checked_date - timedelta(days=recent_days)
+    return earliest <= opening_date <= checked_date
+
+
+def _source_priority(entry: dict) -> int:
+    return RECENT_SOURCE_TYPES.get(entry.get("source_type"), 99)
+
+
+def _store_lookup_key(brand: str, store: dict) -> tuple[str, str, str, str]:
+    return _door_key(brand, store.get("country"), store.get("city"), store.get("name"))
+
+
+def _brandless_tokens(text: str | None, brand: str) -> set[str]:
+    tokens = normalize(text).split()
+    brand_tokens = set(normalize(brand).split())
+    return {token for token in tokens if token not in brand_tokens}
+
+
+def _entry_matches_store(entry: dict, brand_name: str, store: dict) -> bool:
+    if brand_match_key(entry.get("brand")) != brand_match_key(brand_name):
+        return False
+
+    store_country = normalize(store.get("country"))
+    entry_country = normalize(entry.get("country"))
+    if store_country and entry_country and store_country != entry_country:
+        return False
+
+    store_city = normalize(store.get("city"))
+    entry_city = normalize(entry.get("city"))
+    if store_city and entry_city and store_city != entry_city:
+        return False
+
+    store_name = normalize(store.get("name"))
+    entry_name = normalize(entry.get("store_name"))
+    store_address = normalize(store.get("address"))
+    entry_address = normalize(entry.get("address"))
+
+    if store_name and entry_name and store_name == entry_name:
+        return True
+    if store_address and entry_address and store_address == entry_address:
+        return True
+    if store_address and entry_address and (store_address in entry_address or entry_address in store_address):
+        return True
+
+    store_tokens = _brandless_tokens(store.get("name"), brand_name)
+    entry_tokens = _brandless_tokens(entry.get("store_name"), brand_name)
+    if store_city and entry_city and store_tokens and entry_tokens and store_tokens.intersection(entry_tokens):
+        return True
+
+    return False
+
+
+def _best_entry(entries: list[dict]) -> dict | None:
+    if not entries:
+        return None
+    return sorted(
+        entries,
+        key=lambda entry: (
+            _source_priority(entry),
+            0 if _parse_source_date(entry.get("source_date")) else 1,
+            -int(entry.get("status") == "CONFIRMED"),
+            entry.get("source_title") or "",
+        ),
+    )[0]
+
+
+def _recent_sort_key(entry: dict) -> tuple[int, int, str]:
+    opening_date = _parse_source_date(entry.get("source_date"))
+    return (
+        _source_priority(entry),
+        -opening_date.toordinal() if opening_date else 0,
+        entry.get("source_title") or "",
+    )
+
+
+def load_bible_index(existing_file: Path | str) -> dict:
+    rows = load_bible_competition(existing_file)
+    filtered_rows, _ = filter_bible_rows(rows)
+    return build_bible_index(filtered_rows)
+
+
+def load_research_cache(cache_path: Path | str = CACHE_PATH_DEFAULT) -> dict:
+    return load_cache(cache_path)
+
+
+def _format_source_label(entry: dict) -> str:
+    return entry.get("source_title") or entry.get("source_domain") or "Source"
+
+
+def _recent_row(brand_name: str, store: dict, entry: dict, checked_date: date) -> dict:
+    notes = entry.get("verification_notes") or ""
+    if entry.get("status") == "PROBABLE":
+        notes = "PROBABLE - " + notes if notes else "PROBABLE"
+    return {
+        "BRAND": brand_name,
+        "REGION": store.get("region") or entry.get("region"),
+        "COUNTRY": store.get("country") or entry.get("country"),
+        "CITY": store.get("city") or entry.get("city"),
+        "DOOR NAME": store.get("name") or entry.get("store_name"),
+        "FULL ADDRESS": store.get("address") or entry.get("address"),
+        "DOOR TYPE": entry.get("store_classification"),
+        "OPENING DATE": entry.get("source_date"),
+        "SOURCE": _format_source_label(entry),
+        "SOURCE URL": entry.get("url"),
+        "DATE CHECKED": checked_date.isoformat(),
+        "NOTES": notes,
+    }
+
+
+def _verify_row(brand_name: str, store: dict, entry: dict, checked_date: date, reason: str) -> dict:
+    return {
+        "BRAND": brand_name,
+        "REGION": store.get("region") or entry.get("region"),
+        "COUNTRY": store.get("country") or entry.get("country"),
+        "CITY": store.get("city") or entry.get("city"),
+        "DOOR NAME": store.get("name") or entry.get("store_name"),
+        "FULL ADDRESS": store.get("address") or entry.get("address"),
+        "REASON TO VERIFY": reason,
+        "SOURCE": _format_source_label(entry),
+        "SOURCE URL": entry.get("url"),
+        "DATE CHECKED": checked_date.isoformat(),
+        "NOTES": entry.get("verification_notes") or entry.get("evidence") or "",
+    }
+
+
+def _row_key(row: dict) -> tuple[str, ...]:
+    return tuple(normalize(row.get(field)) for field in ROW_KEY_FIELDS)
+
+
+def _store_from_entry(entry: dict) -> dict:
+    return {
+        "name": entry.get("store_name"),
+        "address": entry.get("address"),
+        "city": entry.get("city"),
+        "country": entry.get("country"),
+        "region": entry.get("region"),
+    }
+
+
+def _candidate_reason(best_entry: dict, checked_date: date, recent_days: int) -> str | None:
+    if _source_priority(best_entry) >= 99:
+        return "source type is below the accepted priority threshold"
+    opening_date = _parse_source_date(best_entry.get("source_date"))
+    if opening_date is None:
+        return "opening source has no date"
+    if not _is_within_recent_days(opening_date, checked_date, recent_days):
+        return "opening source is older than the recent window"
+    return "source requires manual verification"
+
+
+def _selected_brand_map(results: list[dict]) -> dict[str, str]:
+    selected = {}
+    for result in results:
+        brand_name = result.get("brand")
+        if brand_name:
+            selected[brand_match_key(brand_name)] = brand_name
+    return selected
+
+
+def build_recent_openings_rows(
+    results: list[dict],
+    bible_index: dict,
+    research_cache: dict,
+    recent_days: int = 60,
+    checked_date: date | None = None,
+) -> tuple[list[dict], list[dict], PipelineSummary]:
+    checked_date = checked_date or date.today()
+    recent_rows: list[dict] = []
+    verify_rows: list[dict] = []
+    recent_row_keys: set[tuple[str, ...]] = set()
+    verify_row_keys: set[tuple[str, ...]] = set()
+    recent_by_brand: defaultdict[str, int] = defaultdict(int)
+    verify_by_brand: defaultdict[str, int] = defaultdict(int)
+    source_links_used: set[str] = set()
+    excluded_non_fss_fsf = 0
+    excluded_in_bible = 0
+
+    selected_brands = _selected_brand_map(results)
+    entries = [entry for entry in research_cache.get("entries", []) if brand_match_key(entry.get("brand")) in selected_brands]
+    processed_candidates: set[tuple[str, str, str, str]] = set()
+    counted_bible_exclusions: set[tuple[str, str, str, str]] = set()
+
+    def process_candidate(brand_name: str, store: dict, matched_entries: list[dict]) -> None:
+        nonlocal excluded_non_fss_fsf, excluded_in_bible
+
+        if not matched_entries:
+            return
+
+        candidate_key = _store_lookup_key(brand_name, store)
+        if candidate_key in processed_candidates:
+            return
+
+        if candidate_key in bible_index["by_door_key"]:
+            if candidate_key not in counted_bible_exclusions:
+                excluded_in_bible += 1
+                counted_bible_exclusions.add(candidate_key)
+            processed_candidates.add(candidate_key)
+            return
+
+        candidate_entries = sorted(matched_entries, key=_recent_sort_key)
+        recent_entry = next(
+            (
+                entry for entry in candidate_entries
+                if entry.get("store_classification") in ALLOWED_DOOR_TYPES
+                and _source_priority(entry) < 99
+                and entry.get("status") in RECENT_OPENING_STATUSES
+                and _is_within_recent_days(_parse_source_date(entry.get("source_date")), checked_date, recent_days)
+            ),
+            None,
+        )
+        if recent_entry is not None:
+            row = _recent_row(brand_name, store, recent_entry, checked_date)
+            row_key = _row_key(row)
+            if row_key not in recent_row_keys:
+                recent_rows.append(row)
+                recent_row_keys.add(row_key)
+                recent_by_brand[brand_name] += 1
+                if row["SOURCE URL"]:
+                    source_links_used.add(row["SOURCE URL"])
+            processed_candidates.add(candidate_key)
+            return
+
+        best_entry = _best_entry(matched_entries)
+        if best_entry is None:
+            return
+
+        classification = best_entry.get("store_classification")
+        if classification not in ALLOWED_DOOR_TYPES:
+            excluded_non_fss_fsf += 1
+            processed_candidates.add(candidate_key)
+            return
+
+        reason = _candidate_reason(best_entry, checked_date, recent_days)
+        if reason is None:
+            return
+
+        row = _verify_row(brand_name, store, best_entry, checked_date, reason)
+        row_key = _row_key(row)
+        if row_key not in verify_row_keys:
+            verify_rows.append(row)
+            verify_row_keys.add(row_key)
+            verify_by_brand[brand_name] += 1
+            if row["SOURCE URL"]:
+                source_links_used.add(row["SOURCE URL"])
+        processed_candidates.add(candidate_key)
+
+    for brand_result in results:
+        if brand_result.get("status") != "ok":
             continue
-        names = by_brand.setdefault(brand["brand"].strip().lower(), set())
-        for store in brand["stores"]:
-            if store.get("name"):
-                names.add(normalize(store["name"]))
-    return by_brand
+        brand_name = brand_result["brand"]
 
+        for store in brand_result.get("stores", []):
+            matched_entries = [
+                entry for entry in entries
+                if _entry_matches_store(entry, brand_name, store)
+                and entry.get("status") in VERIFYABLE_STATUSES
+            ]
+            process_candidate(brand_name, store, matched_entries)
 
-def find_recent_openings(
-    cache: dict, bible_index: dict, results: list[dict] | None = None
-) -> tuple[list[dict], list[dict]]:
-    """Returns (recent_opening_rows, still_to_verify_rows) - see module
-    docstring for exactly what qualifies for each list."""
-    scraped_names = _scraped_names_by_brand(results)
-    opened_rows: list[dict] = []
-    to_verify_rows: list[dict] = []
-
-    for entry in cache.get("entries", []):
-        brand = entry.get("brand")
-        store_name = entry.get("store_name")
-        if not brand or not store_name:
+    for entry in entries:
+        if entry.get("status") not in VERIFYABLE_STATUSES:
             continue
-        if entry.get("store_classification") not in _OPENING_CLASSIFICATIONS:
-            continue  # not a monobrand door - out of scope for "openings"
+        brand_name = selected_brands[brand_match_key(entry.get("brand"))]
+        process_candidate(brand_name, _store_from_entry(entry), [entry])
 
-        key = _door_key(brand, entry.get("country"), entry.get("city"), store_name)
-        already_in_bible = key in bible_index.get("by_door_key", {})
+    summary = PipelineSummary(
+        brands_checked=len(selected_brands),
+        recent_openings_found=len(recent_rows),
+        to_verify_count=len(verify_rows),
+        excluded_non_fss_fsf=excluded_non_fss_fsf,
+        excluded_in_bible=excluded_in_bible,
+        recent_openings_by_brand=dict(sorted(recent_by_brand.items())),
+        to_verify_by_brand=dict(sorted(verify_by_brand.items())),
+        source_links_used=tuple(sorted(source_links_used)),
+    )
+    return recent_rows, verify_rows, summary
 
-        if entry.get("status") not in _OPENING_STATUSES or not entry.get("source_date"):
-            to_verify_rows.append({
-                "BRAND": brand,
-                "REGION": entry.get("region"),
-                "COUNTRY": entry.get("country"),
-                "CITY": entry.get("city"),
-                "STORE_NAME": store_name,
-                "ADDRESS": entry.get("address"),
-                "ALREADY_IN_BIBLE": already_in_bible,
-                "STATUS": "TO VERIFY",
-                "REASON": (
-                    "boutique référencée mais sans date d'ouverture confirmée/probable - "
-                    "reste TO VERIFY tant qu'aucune source datée n'est trouvée"
-                ),
-            })
-            continue
 
-        if already_in_bible:
-            continue  # already tracked in the BIBLE - not a new opening
+def _write_sheet(workbook: openpyxl.Workbook, title: str, columns: list[str], rows: list[dict]) -> None:
+    worksheet = workbook.create_sheet(title=title)
+    worksheet.freeze_panes = "A2"
+    worksheet.append(columns)
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
 
-        route = "A (retrouvée par le scraper)" if normalize(store_name) in scraped_names.get(brand.strip().lower(), set()) else "B (annonce en ligne uniquement)"
-        opened_rows.append({
-            "BRAND": brand,
-            "REGION": entry.get("region"),
-            "COUNTRY": entry.get("country"),
-            "CITY": entry.get("city"),
-            "STORE_NAME": store_name,
-            "ADDRESS": entry.get("address"),
-            "DOOR_TYPE": entry.get("store_classification"),
-            "OPENING_EVIDENCE_DATE": entry.get("source_date"),
-            "SOURCE_URL": entry.get("url"),
-            "SOURCE_TYPE": entry.get("source_type"),
-            "CONFIDENCE": entry.get("confidence"),
-            "STATUS": entry.get("status"),
-            "DISCOVERY_ROUTE": route,
-            "EVIDENCE": entry.get("evidence"),
-        })
+    for row in rows:
+        worksheet.append([row.get(column) for column in columns])
 
-    return opened_rows, to_verify_rows
+    worksheet.auto_filter.ref = worksheet.dimensions
+
+    if "SOURCE URL" in columns:
+        hyperlink_col = columns.index("SOURCE URL") + 1
+        for row_index in range(2, worksheet.max_row + 1):
+            cell = worksheet.cell(row=row_index, column=hyperlink_col)
+            if cell.value:
+                cell.hyperlink = str(cell.value)
+                cell.style = "Hyperlink"
+
+    for col_index, column in enumerate(columns, start=1):
+        max_length = len(column)
+        for row_index in range(2, worksheet.max_row + 1):
+            value = worksheet.cell(row=row_index, column=col_index).value
+            if value is None:
+                continue
+            max_length = max(max_length, len(str(value)))
+        worksheet.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 60)
+
+
+def write_recent_openings_workbook(recent_rows: list[dict], verify_rows: list[dict], output_path: Path | str) -> Path:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    workbook = openpyxl.Workbook()
+    workbook.remove(workbook.active)
+    _write_sheet(workbook, RECENT_OPENINGS_SHEET, RECENT_OPENINGS_COLUMNS, recent_rows)
+    _write_sheet(workbook, TO_VERIFY_SHEET, TO_VERIFY_COLUMNS, verify_rows)
+    workbook.save(output_path)
+    workbook.close()
+    return output_path
