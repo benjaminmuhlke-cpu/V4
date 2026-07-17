@@ -73,6 +73,39 @@ def test_store_already_in_bible_is_excluded():
     assert summary.excluded_in_bible == 1
 
 
+def test_scraper_door_name_differs_from_bible_but_entry_name_matches_it():
+    """Mirrors Parfums de Marly Le Marais: the live locator scrape names the
+    door differently ("Boutique Marais") than the BIBLE does ("LE MARAIS"),
+    but the research entry's own store_name matches the BIBLE exactly. The
+    pair must be recognized as already tracked either way, not reported as
+    a new opening just because the scraper's own wording didn't match."""
+    results = [_brand_result(
+        brand="Parfums de Marly", slug="pdm",
+        stores=[_store(
+            name="Parfums de Marly, Boutique Marais",
+            address="45, rue Vieille du Temple",
+            city="Paris", country="France",
+        )],
+    )]
+    bible_index = {
+        "by_door_key": {
+            ("parfums de marly", "france", "paris", "parfums de marly le marais"): [{}],
+        }
+    }
+    entry = _entry(
+        brand="Parfums de Marly", region="EMEA", country="France", city="Paris",
+        store_name="Parfums de Marly Le Marais",
+        address="45 rue Vieille du Temple, 75004 Paris, France",
+        source_type="official_brand_store_page", source_date="2026-06-20",
+    )
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results, bible_index, {"entries": [entry]}, checked_date=date(2026, 7, 17),
+    )
+    assert recent_rows == []
+    assert verify_rows == []
+    assert summary.excluded_in_bible == 1
+
+
 def test_department_store_is_excluded():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
         [_brand_result(stores=[_store()])],

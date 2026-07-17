@@ -23,6 +23,7 @@ competition-tracker/*.xlsx
 competition-tracker/*.pdf
 competition-tracker/reports/
 competition-tracker/drafts/
+competition-tracker/.tmp_pytest/
 !competition-tracker/data/snapshots/.gitkeep
 !competition-tracker/data/reference/.gitkeep
 !competition-tracker/photos/.gitkeep

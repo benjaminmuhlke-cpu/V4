@@ -285,10 +285,20 @@ def build_recent_openings_rows(
         if candidate_key in processed_candidates:
             return
 
-        if candidate_key in bible_index["by_door_key"]:
-            if candidate_key not in counted_bible_exclusions:
+        # A scraper's own door name and a research entry's door name can
+        # both refer to the same physical BIBLE door under different text
+        # (e.g. a locator's "Boutique Marais" vs the BIBLE's own "LE
+        # MARAIS"). Check every name we have for this candidate - not just
+        # whichever one built this particular store dict - so a door that's
+        # already tracked under any of them is never re-reported as new.
+        candidate_bible_keys = {candidate_key} | {
+            _store_lookup_key(brand_name, _store_from_entry(entry)) for entry in matched_entries
+        }
+        matched_bible_key = next((key for key in candidate_bible_keys if key in bible_index["by_door_key"]), None)
+        if matched_bible_key is not None:
+            if matched_bible_key not in counted_bible_exclusions:
                 excluded_in_bible += 1
-                counted_bible_exclusions.add(candidate_key)
+                counted_bible_exclusions.add(matched_bible_key)
             processed_candidates.add(candidate_key)
             return
 
