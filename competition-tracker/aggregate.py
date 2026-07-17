@@ -115,21 +115,27 @@ def _empty_region_totals() -> dict[str, int]:
     return {r: 0 for r in REGIONS}
 
 
-def aggregate_stores(records: list[dict], brand_slug: str, brand_name: str, blocklist: list[str]) -> tuple[dict, list[dict], list[dict]]:
+def aggregate_stores(records: list[dict], brand_slug: str, brand_name: str, blocklist: list[str]) -> tuple[dict, list[dict], list[dict], dict]:
     """FSS-filter + region-classify a raw per-store record list.
 
-    Returns (region_totals, included_stores, verify_rows). included_stores
-    keeps enough detail (name/address/city/country/region/image_url) for
-    store-level delta detection (Etape 4) and photo downloads (Etape 4bis) -
-    verify_rows is ready to append to _a_verifier.csv.
+    Returns (region_totals, included_stores, verify_rows, stats).
+    included_stores keeps enough detail (name/address/city/country/region/
+    image_url) for store-level delta detection (Etape 4) and photo
+    downloads (Etape 4bis) - verify_rows is ready to append to
+    _a_verifier.csv. stats = {"raw_count", "included_count",
+    "blocklist_excluded_count", "ambiguous_count"} - used by the brand
+    coverage audit to report how much of a source was wholesale noise.
     """
     brand_keywords = [w.lower() for w in brand_name.replace("'", " ").split() if len(w) > 2]
     totals = _empty_region_totals()
     verify_rows = []
     included_stores = []
+    blocklist_excluded_count = 0
 
     for raw in records:
         classified = classify_store(raw, brand_slug, brand_keywords, blocklist)
+        if not classified["included"] and not classified["verify_reason"]:
+            blocklist_excluded_count += 1  # confident blocklist exclusion, not ambiguous
         if classified["verify_reason"]:
             verify_rows.append({
                 "brand": brand_name,
@@ -150,7 +156,13 @@ def aggregate_stores(records: list[dict], brand_slug: str, brand_name: str, bloc
                 "image_url": raw.get("image_url"),
             })
 
-    return totals, included_stores, verify_rows
+    stats = {
+        "raw_count": len(records),
+        "included_count": len(included_stores),
+        "blocklist_excluded_count": blocklist_excluded_count,
+        "ambiguous_count": len(verify_rows),
+    }
+    return totals, included_stores, verify_rows, stats
 
 
 def aggregate_country_counts(records: list[dict]) -> tuple[dict, list[dict]]:
@@ -212,6 +224,7 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
         "verify_rows": [],
         "stores": [],
         "partial": False,
+        "scrape_stats": None,
     }
 
     if brand["scraper_type"] == "manual":
@@ -231,8 +244,9 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
     if brand.get("parser") == "diptyque":
         totals, verify_rows = aggregate_country_counts(records)
         stores = []  # Diptyque only gives per-country totals, no per-store detail
+        stats = {"raw_count": len(records), "included_count": None, "blocklist_excluded_count": 0, "ambiguous_count": len(verify_rows)}
     else:
-        totals, stores, verify_rows = aggregate_stores(records, brand["slug"], brand["name"], blocklist)
+        totals, stores, verify_rows, stats = aggregate_stores(records, brand["slug"], brand["name"], blocklist)
 
     for row in verify_rows:
         if row["brand"] is None:
@@ -242,6 +256,7 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
     result["total"] = sum(totals.values())
     result["verify_rows"] = verify_rows
     result["stores"] = stores
+    result["scrape_stats"] = stats
     return result
 
 

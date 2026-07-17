@@ -11,6 +11,9 @@ competition-tracker/**/__pycache__/
 competition-tracker/venv/
 competition-tracker/data/snapshots/*.json
 competition-tracker/data/reference/*.json
+competition-tracker/data/*.csv
+# data/online_research_cache.json is intentionally NOT ignored - it's
+# curated research knowledge (like brand_aliases.json), not per-run output.
 competition-tracker/photos/**/*.jpg
 competition-tracker/photos/**/*.jpeg
 competition-tracker/photos/**/*.png

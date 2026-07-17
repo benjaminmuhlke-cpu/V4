@@ -27,6 +27,9 @@ from aggregate import (
     compute_deltas, compute_store_deltas, compute_trend, load_blocklist,
     previous_snapshot, run_all, save_snapshot, write_a_verifier_csv,
 )
+from coverage_audit import (
+    AUDIT_COLUMNS, FAILURE_COLUMNS, build_coverage_audit, build_manual_follow_up, build_source_failures,
+)
 from diff_existing import (
     build_bible_index, compare_with_existing, filter_bible_rows,
     find_new_stores, find_possible_closures, find_regional_total_differences,
@@ -34,6 +37,10 @@ from diff_existing import (
 )
 from draft_regional_email import generate_draft
 from email_sender import send_report_email
+from online_research import (
+    FALLBACK_COLUMNS, brands_needing_fallback, build_fallback_rows, clear_brand_entries,
+    fallback_summary_by_brand, load_cache, save_cache,
+)
 from pdf_reference import (
     build_ambiguities_rows, extract_pdf_pages, parse_reference_data,
     save_reference_json, write_ambiguities_csv,
@@ -43,7 +50,8 @@ from report import build_html_report, rows_for_export, write_csv, write_xlsx
 from three_source_comparison import build_three_source_rows, write_three_source_csv
 
 BASE_DIR = Path(__file__).parent
-REFERENCE_JSON_PATH = BASE_DIR / "data" / "reference" / "competition_distribution_reference.json"
+DATA_DIR = BASE_DIR / "data"
+REFERENCE_JSON_PATH = DATA_DIR / "reference" / "competition_distribution_reference.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +82,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-email", action="store_true",
         help="Ne pas envoyer l'email, même si les identifiants Gmail sont configurés dans .env.",
+    )
+    parser.add_argument(
+        "--skip-online-fallback", action="store_true",
+        help="Ne pas générer data/online_fallback_sources.csv ni recouper avec le cache de recherche.",
+    )
+    parser.add_argument(
+        "--refresh-online-research", action="store_true",
+        help=(
+            "Vide le cache de recherche en ligne (data/online_research_cache.json) pour les marques "
+            "de ce run avant de générer le rapport - une vraie recherche live n'est pas possible depuis "
+            "ce script (pas de clé d'API de recherche configurée) ; ce flag prépare juste le cache à "
+            "être réalimenté lors d'une prochaine session de recherche."
+        ),
     )
     return parser.parse_args()
 
@@ -142,6 +163,46 @@ def _run_legacy_csv_comparison(results: list[dict], path: Path) -> list[dict]:
     return discrepancies
 
 
+def _run_coverage_audit(brands: list[dict], results: list[dict], today) -> list[dict]:
+    """data/brand_coverage_audit.csv + data/manual_follow_up.csv - purely a
+    reporting layer over brands.yaml + the scrape results already
+    computed, no new scraping logic."""
+    audit_rows = build_coverage_audit(brands, results, checked_date=today)
+    write_rows_csv(audit_rows, DATA_DIR / "brand_coverage_audit.csv", fieldnames=AUDIT_COLUMNS)
+    print(f"{len(audit_rows)} marque(s) auditée(s) -> data/brand_coverage_audit.csv")
+
+    follow_up_rows = build_manual_follow_up(audit_rows)
+    write_rows_csv(follow_up_rows, DATA_DIR / "manual_follow_up.csv", fieldnames=AUDIT_COLUMNS)
+    print(f"{len(follow_up_rows)} marque(s) nécessitant un suivi manuel -> data/manual_follow_up.csv")
+
+    return audit_rows
+
+
+def _run_online_fallback(audit_rows: list[dict], refresh: bool, today) -> dict[str, dict]:
+    """data/online_fallback_sources.csv, read from the locally-cached
+    research file (see online_research.py's module docstring for why this
+    isn't a live search) - scoped to brands the coverage audit actually
+    flags as needing follow-up. Returns the per-brand fallback summary used
+    by brand_source_failures.csv."""
+    brands_to_check = brands_needing_fallback(audit_rows)
+    cache_path = DATA_DIR / "online_research_cache.json"
+    cache = load_cache(cache_path)
+
+    if refresh and brands_to_check:
+        cache = clear_brand_entries(cache, brands_to_check)
+        save_cache(cache, cache_path)
+        print(f"--refresh-online-research : cache vidé pour {len(brands_to_check)} marque(s) - à réalimenter.")
+
+    fallback_rows = build_fallback_rows(cache, brands_to_check)
+    write_rows_csv(fallback_rows, DATA_DIR / "online_fallback_sources.csv", fieldnames=FALLBACK_COLUMNS)
+    print(
+        f"{len(fallback_rows)} source(s) de recherche en ligne (cache) pour {len(brands_to_check)} "
+        f"marque(s) nécessitant un suivi -> data/online_fallback_sources.csv"
+    )
+
+    return fallback_summary_by_brand(cache, brands_to_check)
+
+
 def main() -> int:
     load_dotenv()
     args = parse_args()
@@ -203,6 +264,19 @@ def main() -> int:
         three_source_rows = build_three_source_rows(results, bible_index, pdf_records)
         n_three_source = write_three_source_csv(three_source_rows, BASE_DIR / "three_source_comparison.csv")
         print(f"{n_three_source} ligne(s) de comparaison à 3 sources -> three_source_comparison.csv")
+
+    audit_rows = _run_coverage_audit(brands, results, today)
+
+    fallback_summary = {}
+    if args.skip_online_fallback:
+        print("--skip-online-fallback : recherche en ligne ignorée.")
+    else:
+        fallback_summary = _run_online_fallback(audit_rows, args.refresh_online_research, today)
+
+    failure_rows = build_source_failures(brands, results, fallback_summary, checked_date=today)
+    write_rows_csv(failure_rows, DATA_DIR / "brand_source_failures.csv", fieldnames=FAILURE_COLUMNS)
+    if failure_rows:
+        print(f"{len(failure_rows)} marque(s) en échec de scraping -> data/brand_source_failures.csv")
 
     recipients_raw = os.environ.get("REGIONAL_TEAM_RECIPIENTS", "")
     regional_recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
