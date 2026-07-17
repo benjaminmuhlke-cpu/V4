@@ -177,3 +177,52 @@
     exclue côté BIBLE comme un corner et non une FSS - le blocklist
     multi-marques devrait la filtrer automatiquement ; vérifier dans
     _a_verifier.csv que c'est bien elle qui saute.
+- name: "Matière Première"
+  slug: matiere_premiere
+  store_locator_url: "https://matiere-premiere.com/pages/store-locator"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    La boutique officielle de Londres est confirmée par le journal de la marque
+    et le store locator, mais aucun scraper Stockist n'est maintenu ici pour
+    l'instant. Le workflow recent_openings s'appuie sur les sources de recherche
+    vérifiées pour ce concurrent.
+
+- name: "Byredo"
+  slug: byredo
+  store_locator_url: "https://stores.byredo.com/en"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Réseau mondial géré via les pages stores.byredo.com. Le flux recent_openings
+    utilise des annonces vérifiées + pages boutique officielles plutôt qu'un
+    scraper global de toutes les portes.
+
+- name: "Ex Nihilo"
+  slug: ex_nihilo
+  store_locator_url: "https://www.ex-nihilo-paris.com/"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Les nouvelles implantations récentes repérées sont traitées via des sources
+    officielles/retail vérifiées. Attention : certaines ouvertures sont dans des
+    grands magasins et ne doivent pas être comptées comme FSS/FSF.
+
+- name: "BDK Parfums"
+  slug: bdk
+  store_locator_url: "https://bdkparfums.com/pages/312-saint-honore"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    La Maison a une boutique parisienne permanente et des activations
+    temporaires. Le workflow recent_openings doit exclure les galeries éphémères
+    / pop-ups qui ne sont pas des FSS/FSF permanentes.
+
+- name: "Initio Parfums Privés"
+  slug: initio
+  store_locator_url: "https://uk.initioparfums.com/"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Le site officiel UK référence la boutique de Covent Garden. Les ouvertures
+    récentes sont gérées via les sources vérifiées plutôt qu'un scraper dédié.

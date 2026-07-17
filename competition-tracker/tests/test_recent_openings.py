@@ -12,12 +12,12 @@ from recent_openings import (
 )
 
 
-def _brand_result(stores):
+def _brand_result(brand="Maison Francis Kurkdjian", slug="mfk", stores=None, status="ok"):
     return {
-        "brand": "Maison Francis Kurkdjian",
-        "slug": "mfk",
-        "status": "ok",
-        "stores": stores,
+        "brand": brand,
+        "slug": slug,
+        "status": status,
+        "stores": stores or [],
     }
 
 
@@ -55,7 +55,7 @@ def _entry(**overrides):
 
 
 def test_store_already_in_bible_is_excluded():
-    results = [_brand_result([_store()])]
+    results = [_brand_result(stores=[_store()])]
     bible_index = {
         "by_door_key": {
             ("maison francis kurkdjian", "united states", "houston", "maison francis kurkdjian houston"): [{}],
@@ -70,11 +70,12 @@ def test_store_already_in_bible_is_excluded():
     assert recent_rows == []
     assert verify_rows == []
     assert summary.recent_openings_found == 0
+    assert summary.excluded_in_bible == 1
 
 
 def test_department_store_is_excluded():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store()])],
+        [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
         {"entries": [_entry(store_classification="department store")]},
         checked_date=date(2026, 7, 17),
@@ -86,7 +87,7 @@ def test_department_store_is_excluded():
 
 def test_perfumery_is_excluded():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store()])],
+        [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
         {"entries": [_entry(store_classification="wholesale")]},
         checked_date=date(2026, 7, 17),
@@ -98,7 +99,7 @@ def test_perfumery_is_excluded():
 
 def test_opening_source_within_60_days_is_included():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store()])],
+        [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
         {"entries": [_entry(source_date="2026-07-10")]},
         checked_date=date(2026, 7, 17),
@@ -109,21 +110,22 @@ def test_opening_source_within_60_days_is_included():
     assert summary.recent_openings_found == 1
 
 
-def test_source_older_than_60_days_is_excluded():
+def test_old_announcement_goes_to_to_verify():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store()])],
+        [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
         {"entries": [_entry(source_date="2026-04-01")]},
         checked_date=date(2026, 7, 17),
     )
     assert recent_rows == []
-    assert verify_rows == []
-    assert summary.recent_openings_found == 0
+    assert len(verify_rows) == 1
+    assert verify_rows[0]["REASON TO VERIFY"] == "opening source is older than the recent window"
+    assert summary.to_verify_count == 1
 
 
 def test_unknown_opening_date_goes_to_to_verify():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store()])],
+        [_brand_result(stores=[_store()])],
         {"by_door_key": {}},
         {"entries": [_entry(source_date=None)]},
         checked_date=date(2026, 7, 17),
@@ -136,9 +138,61 @@ def test_unknown_opening_date_goes_to_to_verify():
 
 def test_duplicate_boutiques_are_removed():
     recent_rows, verify_rows, summary = build_recent_openings_rows(
-        [_brand_result([_store(), _store()])],
+        [_brand_result(stores=[_store(), _store()])],
         {"by_door_key": {}},
         {"entries": [_entry(), _entry(source_title="Backup Source")]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert summary.recent_openings_found == 1
+
+
+def test_recent_official_announcement_absent_from_bible_is_included_without_store_locator_match():
+    results = [_brand_result(brand="Byredo", slug="byredo", stores=[])]
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results,
+        {"by_door_key": {}},
+        {"entries": [_entry(
+            brand="Byredo",
+            region="APAC",
+            country="Hong Kong",
+            city="Hong Kong",
+            store_name="Byredo Gough Street",
+            address="2-10 Gough Street, Hong Kong",
+            url="https://example.com/byredo",
+            source_title="Byredo Opens New Boutique",
+            source_type="official_brand_newsroom",
+            source_date="2026-07-10",
+            store_classification="FSS",
+            confidence="high",
+            verification_notes="Official opening post",
+        )]},
+        checked_date=date(2026, 7, 17),
+    )
+    assert len(recent_rows) == 1
+    assert verify_rows == []
+    assert recent_rows[0]["BRAND"] == "Byredo"
+    assert summary.recent_openings_by_brand == {"Byredo": 1}
+
+
+def test_credible_mall_or_landlord_announcement_is_included():
+    results = [_brand_result(stores=[])]
+    recent_rows, verify_rows, summary = build_recent_openings_rows(
+        results,
+        {"by_door_key": {}},
+        {"entries": [_entry(
+            city="Miami",
+            store_name="Maison Francis Kurkdjian - Miami Design District",
+            address="176 NE 41st St, Miami, FL",
+            url="https://example.com/mall",
+            source_title="Miami Design District",
+            source_type="official_mall_landlord_directory",
+            source_date="2026-07-05",
+            store_classification="FSS",
+            confidence="high",
+            verification_notes="Official landlord directory",
+        )]},
         checked_date=date(2026, 7, 17),
     )
     assert len(recent_rows) == 1

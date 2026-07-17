@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -48,9 +49,12 @@ TO_VERIFY_COLUMNS = [
 RECENT_SOURCE_TYPES = {
     "official_brand_website": 1,
     "official_brand_newsroom": 1,
-    "official_mall_landlord_directory": 2,
-    "official_mall_landlord_website": 2,
-    "official_verified_brand_social_post": 3,
+    "official_brand_store_page": 1,
+    "official_verified_brand_social_post": 2,
+    "official_mall_landlord_directory": 3,
+    "official_mall_landlord_website": 3,
+    "official_airport_website": 3,
+    "official_shopping_centre_website": 3,
     "industry_publication": 4,
     "beauty_publication": 4,
     "luxury_publication": 4,
@@ -62,6 +66,7 @@ RECENT_SOURCE_TYPES = {
 ALLOWED_DOOR_TYPES = {"FSS", "FSF"}
 RECENT_OPENING_STATUSES = {"CONFIRMED", "PROBABLE"}
 VERIFYABLE_STATUSES = {"CONFIRMED", "PROBABLE", "TO VERIFY"}
+ROW_KEY_FIELDS = ("BRAND", "COUNTRY", "CITY", "DOOR NAME")
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,10 @@ class PipelineSummary:
     recent_openings_found: int
     to_verify_count: int
     excluded_non_fss_fsf: int
+    excluded_in_bible: int
+    recent_openings_by_brand: dict[str, int] = field(default_factory=dict)
+    to_verify_by_brand: dict[str, int] = field(default_factory=dict)
+    source_links_used: tuple[str, ...] = ()
 
 
 def _parse_source_date(value: str | None) -> date | None:
@@ -173,12 +182,12 @@ def _format_source_label(entry: dict) -> str:
     return entry.get("source_title") or entry.get("source_domain") or "Source"
 
 
-def _recent_row(brand_result: dict, store: dict, entry: dict, checked_date: date) -> dict:
+def _recent_row(brand_name: str, store: dict, entry: dict, checked_date: date) -> dict:
     notes = entry.get("verification_notes") or ""
     if entry.get("status") == "PROBABLE":
         notes = "PROBABLE - " + notes if notes else "PROBABLE"
     return {
-        "BRAND": brand_result["brand"],
+        "BRAND": brand_name,
         "REGION": store.get("region") or entry.get("region"),
         "COUNTRY": store.get("country") or entry.get("country"),
         "CITY": store.get("city") or entry.get("city"),
@@ -193,9 +202,9 @@ def _recent_row(brand_result: dict, store: dict, entry: dict, checked_date: date
     }
 
 
-def _verify_row(brand_result: dict, store: dict, entry: dict, checked_date: date, reason: str) -> dict:
+def _verify_row(brand_name: str, store: dict, entry: dict, checked_date: date, reason: str) -> dict:
     return {
-        "BRAND": brand_result["brand"],
+        "BRAND": brand_name,
         "REGION": store.get("region") or entry.get("region"),
         "COUNTRY": store.get("country") or entry.get("country"),
         "CITY": store.get("city") or entry.get("city"),
@@ -209,11 +218,38 @@ def _verify_row(brand_result: dict, store: dict, entry: dict, checked_date: date
     }
 
 
-def _append_deduped(rows: list[dict], row: dict, key_fields: tuple[str, ...]) -> None:
-    row_key = tuple(normalize(row.get(field)) for field in key_fields)
-    if any(tuple(normalize(existing.get(field)) for field in key_fields) == row_key for existing in rows):
-        return
-    rows.append(row)
+def _row_key(row: dict) -> tuple[str, ...]:
+    return tuple(normalize(row.get(field)) for field in ROW_KEY_FIELDS)
+
+
+def _store_from_entry(entry: dict) -> dict:
+    return {
+        "name": entry.get("store_name"),
+        "address": entry.get("address"),
+        "city": entry.get("city"),
+        "country": entry.get("country"),
+        "region": entry.get("region"),
+    }
+
+
+def _candidate_reason(best_entry: dict, checked_date: date, recent_days: int) -> str | None:
+    if _source_priority(best_entry) >= 99:
+        return "source type is below the accepted priority threshold"
+    opening_date = _parse_source_date(best_entry.get("source_date"))
+    if opening_date is None:
+        return "opening source has no date"
+    if not _is_within_recent_days(opening_date, checked_date, recent_days):
+        return "opening source is older than the recent window"
+    return "source requires manual verification"
+
+
+def _selected_brand_map(results: list[dict]) -> dict[str, str]:
+    selected = {}
+    for result in results:
+        brand_name = result.get("brand")
+        if brand_name:
+            selected[brand_match_key(brand_name)] = brand_name
+    return selected
 
 
 def build_recent_openings_rows(
@@ -226,74 +262,111 @@ def build_recent_openings_rows(
     checked_date = checked_date or date.today()
     recent_rows: list[dict] = []
     verify_rows: list[dict] = []
+    recent_row_keys: set[tuple[str, ...]] = set()
+    verify_row_keys: set[tuple[str, ...]] = set()
+    recent_by_brand: defaultdict[str, int] = defaultdict(int)
+    verify_by_brand: defaultdict[str, int] = defaultdict(int)
+    source_links_used: set[str] = set()
     excluded_non_fss_fsf = 0
+    excluded_in_bible = 0
 
-    entries = research_cache.get("entries", [])
+    selected_brands = _selected_brand_map(results)
+    entries = [entry for entry in research_cache.get("entries", []) if brand_match_key(entry.get("brand")) in selected_brands]
+    processed_candidates: set[tuple[str, str, str, str]] = set()
+    counted_bible_exclusions: set[tuple[str, str, str, str]] = set()
+
+    def process_candidate(brand_name: str, store: dict, matched_entries: list[dict]) -> None:
+        nonlocal excluded_non_fss_fsf, excluded_in_bible
+
+        if not matched_entries:
+            return
+
+        candidate_key = _store_lookup_key(brand_name, store)
+        if candidate_key in processed_candidates:
+            return
+
+        if candidate_key in bible_index["by_door_key"]:
+            if candidate_key not in counted_bible_exclusions:
+                excluded_in_bible += 1
+                counted_bible_exclusions.add(candidate_key)
+            processed_candidates.add(candidate_key)
+            return
+
+        candidate_entries = sorted(matched_entries, key=_recent_sort_key)
+        recent_entry = next(
+            (
+                entry for entry in candidate_entries
+                if entry.get("store_classification") in ALLOWED_DOOR_TYPES
+                and _source_priority(entry) < 99
+                and entry.get("status") in RECENT_OPENING_STATUSES
+                and _is_within_recent_days(_parse_source_date(entry.get("source_date")), checked_date, recent_days)
+            ),
+            None,
+        )
+        if recent_entry is not None:
+            row = _recent_row(brand_name, store, recent_entry, checked_date)
+            row_key = _row_key(row)
+            if row_key not in recent_row_keys:
+                recent_rows.append(row)
+                recent_row_keys.add(row_key)
+                recent_by_brand[brand_name] += 1
+                if row["SOURCE URL"]:
+                    source_links_used.add(row["SOURCE URL"])
+            processed_candidates.add(candidate_key)
+            return
+
+        best_entry = _best_entry(matched_entries)
+        if best_entry is None:
+            return
+
+        classification = best_entry.get("store_classification")
+        if classification not in ALLOWED_DOOR_TYPES:
+            excluded_non_fss_fsf += 1
+            processed_candidates.add(candidate_key)
+            return
+
+        reason = _candidate_reason(best_entry, checked_date, recent_days)
+        if reason is None:
+            return
+
+        row = _verify_row(brand_name, store, best_entry, checked_date, reason)
+        row_key = _row_key(row)
+        if row_key not in verify_row_keys:
+            verify_rows.append(row)
+            verify_row_keys.add(row_key)
+            verify_by_brand[brand_name] += 1
+            if row["SOURCE URL"]:
+                source_links_used.add(row["SOURCE URL"])
+        processed_candidates.add(candidate_key)
 
     for brand_result in results:
         if brand_result.get("status") != "ok":
             continue
+        brand_name = brand_result["brand"]
 
         for store in brand_result.get("stores", []):
-            if _store_lookup_key(brand_result["brand"], store) in bible_index["by_door_key"]:
-                continue
-
             matched_entries = [
                 entry for entry in entries
-                if _entry_matches_store(entry, brand_result["brand"], store)
+                if _entry_matches_store(entry, brand_name, store)
                 and entry.get("status") in VERIFYABLE_STATUSES
             ]
-            if not matched_entries:
-                continue
+            process_candidate(brand_name, store, matched_entries)
 
-            candidate_entries = sorted(matched_entries, key=_recent_sort_key)
-            recent_entry = next(
-                (
-                    entry for entry in candidate_entries
-                    if entry.get("store_classification") in ALLOWED_DOOR_TYPES
-                    and _source_priority(entry) < 99
-                    and entry.get("status") in RECENT_OPENING_STATUSES
-                    and _is_within_recent_days(_parse_source_date(entry.get("source_date")), checked_date, recent_days)
-                ),
-                None,
-            )
-            if recent_entry is not None:
-                _append_deduped(
-                    recent_rows,
-                    _recent_row(brand_result, store, recent_entry, checked_date),
-                    ("BRAND", "COUNTRY", "CITY", "DOOR NAME"),
-                )
-                continue
-
-            best_entry = _best_entry(matched_entries)
-            if best_entry is None:
-                continue
-
-            classification = best_entry.get("store_classification")
-            if classification not in ALLOWED_DOOR_TYPES:
-                excluded_non_fss_fsf += 1
-                continue
-
-            if _source_priority(best_entry) >= 99:
-                reason = "source type is below the accepted priority threshold"
-            elif _parse_source_date(best_entry.get("source_date")) is None:
-                reason = "opening source has no date"
-            elif not _is_within_recent_days(_parse_source_date(best_entry.get("source_date")), checked_date, recent_days):
-                continue
-            else:
-                reason = "source requires manual verification"
-
-            _append_deduped(
-                verify_rows,
-                _verify_row(brand_result, store, best_entry, checked_date, reason),
-                ("BRAND", "COUNTRY", "CITY", "DOOR NAME"),
-            )
+    for entry in entries:
+        if entry.get("status") not in VERIFYABLE_STATUSES:
+            continue
+        brand_name = selected_brands[brand_match_key(entry.get("brand"))]
+        process_candidate(brand_name, _store_from_entry(entry), [entry])
 
     summary = PipelineSummary(
-        brands_checked=sum(1 for result in results if result.get("status") == "ok"),
+        brands_checked=len(selected_brands),
         recent_openings_found=len(recent_rows),
         to_verify_count=len(verify_rows),
         excluded_non_fss_fsf=excluded_non_fss_fsf,
+        excluded_in_bible=excluded_in_bible,
+        recent_openings_by_brand=dict(sorted(recent_by_brand.items())),
+        to_verify_by_brand=dict(sorted(verify_by_brand.items())),
+        source_links_used=tuple(sorted(source_links_used)),
     )
     return recent_rows, verify_rows, summary
 

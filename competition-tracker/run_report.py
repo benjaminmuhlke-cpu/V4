@@ -28,8 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--brands",
         type=str,
-        default="pdm,amouage,creed,mfk",
-        help="Comma-separated brand slugs to check (default: pdm,amouage,creed,mfk).",
+        default="pdm,amouage,creed,matiere_premiere,mfk,byredo,nishane,ex_nihilo,bdk,initio",
+        help="Comma-separated brand slugs to check for recent openings.",
     )
     parser.add_argument(
         "--existing-file",
@@ -142,6 +142,14 @@ def _merge_results_with_fallbacks(
     return ordered
 
 
+def _write_workbook_with_fallback(recent_rows: list[dict], verify_rows: list[dict], output_path: Path) -> tuple[Path, bool]:
+    try:
+        return write_recent_openings_workbook(recent_rows, verify_rows, output_path), False
+    except PermissionError:
+        fallback_path = output_path.with_name(f"{output_path.stem}.generated{output_path.suffix}")
+        return write_recent_openings_workbook(recent_rows, verify_rows, fallback_path), True
+
+
 def main() -> int:
     args = parse_args()
     only_slugs = [slug.strip() for slug in args.brands.split(",") if slug.strip()] if args.brands else None
@@ -161,14 +169,17 @@ def main() -> int:
         recent_days=args.recent_days,
         checked_date=today,
     )
-    output_path = write_recent_openings_workbook(recent_rows, verify_rows, Path(args.output))
+    output_path, used_fallback_output = _write_workbook_with_fallback(recent_rows, verify_rows, Path(args.output))
 
     if args.no_email:
         print("--no-email accepted; no email step is run in this streamlined workflow.")
+    if used_fallback_output:
+        print(f"Requested output was locked; workbook was written to {output_path} instead.")
 
     print(f"Brands checked: {summary.brands_checked}")
     print(f"Recent openings found: {summary.recent_openings_found}")
     print(f"Candidates placed in TO VERIFY: {summary.to_verify_count}")
+    print(f"Candidates excluded because they already exist in the BIBLE: {summary.excluded_in_bible}")
     print(f"Locations excluded as non-FSS/FSF: {summary.excluded_non_fss_fsf}")
     print(f"Output file: {output_path}")
     return 0
