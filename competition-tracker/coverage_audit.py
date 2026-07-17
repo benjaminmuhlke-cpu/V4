@@ -16,7 +16,7 @@ AUDIT_COLUMNS = [
     "BRAND", "OFFICIAL_SOURCE", "SOURCE_TYPE", "ACCESSIBLE", "STORE_LEVEL_DATA",
     "COUNTRY_DATA", "CITY_DATA", "ADDRESS_DATA", "REGIONAL_TOTALS", "WORLDWIDE_TOTAL",
     "PHOTOS_AVAILABLE", "MIXES_WHOLESALE", "FSS_FILTER_RELIABLE",
-    "EMEA_STATUS", "UK_STATUS", "NOAM_STATUS", "LATAM_STATUS", "CHINA_STATUS", "APAC_STATUS",
+    *(f"{r}_STATUS" for r in REGIONS),
     "OVERALL_STATUS", "CONFIDENCE", "MISSING_DATA", "MANUAL_ACTION_REQUIRED", "LAST_CHECKED",
 ]
 
@@ -30,9 +30,10 @@ FAILURE_COLUMNS = [
 # rather than introduce a second confidence vocabulary throughout the code.
 CONFIDENCE_EN = {"haute": "high", "moyenne": "medium", "manuelle": "low"}
 
-# Below this ratio of ambiguous-name entries to raw scraped entries, a
-# "moyenne" confidence source's FSS filter is still considered usable
-# without heavier manual review.
+# Below this ratio of name-ambiguous entries (store name didn't obviously
+# match the brand - the FSS-vs-wholesale signal, not a geography lookup
+# gap) to raw scraped entries, a "moyenne" confidence source's FSS filter
+# is still considered usable without heavier manual review.
 MAX_AMBIGUOUS_RATIO_FOR_RELIABLE = 0.3
 
 
@@ -58,19 +59,28 @@ def _fss_filter_reliable(brand_result: dict, brand_config: dict) -> bool:
     if confidence == "haute":
         return True
     stats = brand_result.get("scrape_stats") or {}
+    if stats.get("included_count") is None:
+        # Aggregate-only source (e.g. Diptyque's per-country totals): no
+        # per-store FSS-vs-wholesale classification ever runs here, so
+        # there's no filter to vouch for outside "haute" confidence.
+        return False
     raw = stats.get("raw_count") or 0
-    ambiguous = stats.get("ambiguous_count") or 0
-    return raw > 0 and (ambiguous / raw) < MAX_AMBIGUOUS_RATIO_FOR_RELIABLE
+    name_ambiguous = stats.get("name_ambiguous_count") or 0
+    return raw > 0 and (name_ambiguous / raw) < MAX_AMBIGUOUS_RATIO_FOR_RELIABLE
 
 
 def _overall_status(brand_result: dict, brand_config: dict) -> str:
+    """Data completeness for this run - deliberately independent of
+    CONFIDENCE (a separate column): a "moyenne" source that scraped fully
+    and untruncated this time is "complete" for this audit's purposes, same
+    as a "haute" one. Confidence is about how much to trust the FSS
+    classification; this is about whether we got a full read this run.
+    """
     if brand_config["scraper_type"] == "manual" or brand_result["status"] == "manual":
         return "manual"
     if brand_result["status"] == "error":
         return "failed"
-    if brand_config.get("confidence") == "haute" and not brand_result.get("partial"):
-        return "complete"
-    return "partial"
+    return "partial" if brand_result.get("partial") else "complete"
 
 
 def _mixes_wholesale(brand_result: dict, brand_config: dict) -> bool:
@@ -88,8 +98,11 @@ def _missing_data_reason(brand_result: dict, brand_config: dict) -> str:
         return f"Scraper en echec : {brand_result.get('error')}"
     if brand_result.get("partial"):
         return "Resultat scraper probablement tronque (plafond de resultats atteint sur une requete)"
-    if brand_config.get("parser") == "diptyque":
-        return "La source ne donne que des totaux par pays, pas le detail par boutique"
+    stats = brand_result.get("scrape_stats") or {}
+    if stats.get("included_count") is None:
+        # Generalizes to any current/future aggregate-only source (only
+        # Diptyque today), not just that one parser by name.
+        return "La source ne donne que des totaux agreges (par pays), pas le detail par boutique"
     missing_regions = [r for r in REGIONS if _region_status(brand_result, r) == "zero"]
     if missing_regions:
         return f"Zero boutique trouvee dans : {', '.join(missing_regions)} (a confirmer que la marque n'y est vraiment pas presente)"
@@ -122,12 +135,7 @@ def build_audit_row(brand_config: dict, brand_result: dict, checked_date: date |
         "PHOTOS_AVAILABLE": _has_field(brand_result, "image_url"),
         "MIXES_WHOLESALE": _mixes_wholesale(brand_result, brand_config),
         "FSS_FILTER_RELIABLE": _fss_filter_reliable(brand_result, brand_config),
-        "EMEA_STATUS": _region_status(brand_result, "EMEA"),
-        "UK_STATUS": _region_status(brand_result, "UK"),
-        "NOAM_STATUS": _region_status(brand_result, "NOAM"),
-        "LATAM_STATUS": _region_status(brand_result, "LATAM"),
-        "CHINA_STATUS": _region_status(brand_result, "CHINA"),
-        "APAC_STATUS": _region_status(brand_result, "APAC"),
+        **{f"{r}_STATUS": _region_status(brand_result, r) for r in REGIONS},
         "OVERALL_STATUS": _overall_status(brand_result, brand_config),
         "CONFIDENCE": CONFIDENCE_EN.get(brand_config.get("confidence"), "low"),
         "MISSING_DATA": _missing_data_reason(brand_result, brand_config),

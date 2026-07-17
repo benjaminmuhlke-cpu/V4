@@ -73,7 +73,13 @@ def add_research_entry(cache: dict, entry: dict) -> dict:
     """Append one researched finding. Validates confidence/status/
     classification against the allowed vocabulary rather than accepting
     anything silently - a typo here would otherwise surface as a blank
-    cell in the CSV with no explanation."""
+    cell in the CSV with no explanation. A missing/blank "brand" is
+    rejected outright rather than silently accepted: every lookup here
+    keys off brand_match_key(entry["brand"]), so a blank brand would
+    accept the entry into the cache but make it unfindable by any brand
+    query - it would look like "no research done" to every consumer."""
+    if not entry.get("brand"):
+        raise ValueError("research entry is missing a required 'brand' field")
     if entry.get("confidence") not in CONFIDENCE_LEVELS:
         raise ValueError(f"invalid confidence {entry.get('confidence')!r} - expected one of {CONFIDENCE_LEVELS}")
     if entry.get("status") not in STATUS_VALUES:

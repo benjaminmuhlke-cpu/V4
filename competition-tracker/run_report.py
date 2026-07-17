@@ -38,8 +38,8 @@ from diff_existing import (
 from draft_regional_email import generate_draft
 from email_sender import send_report_email
 from online_research import (
-    FALLBACK_COLUMNS, brands_needing_fallback, build_fallback_rows, clear_brand_entries,
-    fallback_summary_by_brand, load_cache, save_cache,
+    CACHE_PATH_DEFAULT, FALLBACK_COLUMNS, brands_needing_fallback, build_fallback_rows,
+    clear_brand_entries, fallback_summary_by_brand, load_cache, save_cache,
 )
 from pdf_reference import (
     build_ambiguities_rows, extract_pdf_pages, parse_reference_data,
@@ -185,7 +185,7 @@ def _run_online_fallback(audit_rows: list[dict], refresh: bool, today) -> dict[s
     flags as needing follow-up. Returns the per-brand fallback summary used
     by brand_source_failures.csv."""
     brands_to_check = brands_needing_fallback(audit_rows)
-    cache_path = DATA_DIR / "online_research_cache.json"
+    cache_path = CACHE_PATH_DEFAULT
     cache = load_cache(cache_path)
 
     if refresh and brands_to_check:

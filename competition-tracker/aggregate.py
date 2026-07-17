@@ -83,13 +83,20 @@ def classify_store(record: dict, brand_slug: str, brand_keywords: list[str], blo
     """Apply the FSS filter to one raw store record.
 
     Returns the record enriched with "region", "country", "included" (bool),
-    and "verify_reason" (set only when the decision is worth a human look).
+    "verify_reason" (set only when the decision is worth a human look), and
+    "name_ambiguous" (True specifically when the store's *name* didn't
+    obviously match the brand - as opposed to a geography-lookup gap, which
+    also sets verify_reason but says nothing about FSS-vs-wholesale
+    classification quality). Keeping the two apart matters: a brand can have
+    a perfectly reliable name-based filter and still hit unmapped countries,
+    and conflating the two would misreport the filter as unreliable.
     """
     name = (record.get("name") or "").strip()
     name_lower = name.lower()
 
     verify_reason = None
     included = True
+    name_ambiguous = False
 
     blocklist_hit = next((b for b in blocklist if b in name_lower), None)
     if blocklist_hit:
@@ -100,6 +107,7 @@ def classify_store(record: dict, brand_slug: str, brand_keywords: list[str], blo
         # either - keep it (better a false positive we can review than a
         # silently dropped boutique) but flag it for manual review.
         verify_reason = f"nom '{name}' ne contient ni le mot-clé de la marque ni une entrée blocklist connue"
+        name_ambiguous = True
 
     country = _resolve_country(record, brand_slug)
     region = get_region(country) if country else None
@@ -107,7 +115,10 @@ def classify_store(record: dict, brand_slug: str, brand_keywords: list[str], blo
         note = "pays introuvable" if not country else f"pays '{country}' non reconnu dans region_mapping"
         verify_reason = f"{verify_reason + ' ; ' if verify_reason else ''}{note}"
 
-    record = {**record, "country": country, "region": region, "included": included, "verify_reason": verify_reason}
+    record = {
+        **record, "country": country, "region": region, "included": included,
+        "verify_reason": verify_reason, "name_ambiguous": name_ambiguous,
+    }
     return record
 
 
@@ -123,19 +134,27 @@ def aggregate_stores(records: list[dict], brand_slug: str, brand_name: str, bloc
     image_url) for store-level delta detection (Etape 4) and photo
     downloads (Etape 4bis) - verify_rows is ready to append to
     _a_verifier.csv. stats = {"raw_count", "included_count",
-    "blocklist_excluded_count", "ambiguous_count"} - used by the brand
-    coverage audit to report how much of a source was wholesale noise.
+    "blocklist_excluded_count", "ambiguous_count", "name_ambiguous_count"} -
+    used by the brand coverage audit. "ambiguous_count" is every row flagged
+    for _a_verifier.csv for any reason (name mismatch and/or unmapped
+    country); "name_ambiguous_count" is specifically the FSS-vs-wholesale
+    name-match failures - the one that actually measures filter reliability,
+    since a brand can hit unmapped countries with a perfectly reliable name
+    filter and the two shouldn't be conflated into one ratio.
     """
     brand_keywords = [w.lower() for w in brand_name.replace("'", " ").split() if len(w) > 2]
     totals = _empty_region_totals()
     verify_rows = []
     included_stores = []
     blocklist_excluded_count = 0
+    name_ambiguous_count = 0
 
     for raw in records:
         classified = classify_store(raw, brand_slug, brand_keywords, blocklist)
         if not classified["included"] and not classified["verify_reason"]:
             blocklist_excluded_count += 1  # confident blocklist exclusion, not ambiguous
+        if classified["name_ambiguous"]:
+            name_ambiguous_count += 1
         if classified["verify_reason"]:
             verify_rows.append({
                 "brand": brand_name,
@@ -161,6 +180,7 @@ def aggregate_stores(records: list[dict], brand_slug: str, brand_name: str, bloc
         "included_count": len(included_stores),
         "blocklist_excluded_count": blocklist_excluded_count,
         "ambiguous_count": len(verify_rows),
+        "name_ambiguous_count": name_ambiguous_count,
     }
     return totals, included_stores, verify_rows, stats
 
@@ -244,7 +264,16 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
     if brand.get("parser") == "diptyque":
         totals, verify_rows = aggregate_country_counts(records)
         stores = []  # Diptyque only gives per-country totals, no per-store detail
-        stats = {"raw_count": len(records), "included_count": None, "blocklist_excluded_count": 0, "ambiguous_count": len(verify_rows)}
+        # included_count=None (not 0) is a deliberate sentinel: this source
+        # never runs a per-store FSS-vs-wholesale filter at all, so there is
+        # no "how many included" to report - it's not applicable, not zero.
+        # name_ambiguous_count=0 for the same reason: no per-store name
+        # classification happens here to be ambiguous about.
+        stats = {
+            "raw_count": len(records), "included_count": None,
+            "blocklist_excluded_count": 0, "ambiguous_count": len(verify_rows),
+            "name_ambiguous_count": 0,
+        }
     else:
         totals, stores, verify_rows, stats = aggregate_stores(records, brand["slug"], brand["name"], blocklist)
 
