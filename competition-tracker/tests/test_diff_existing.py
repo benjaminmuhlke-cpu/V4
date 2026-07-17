@@ -15,13 +15,20 @@ HEADERS = ["BRAND", "REGION", "COUNTRY", "CITY", "DOOR NAME", "DOOR TYPE", "OFF/
 # and normalization edge case (accents/case/punctuation) the real BIBLE can
 # contain, without needing the real file.
 SYNTHETIC_ROWS = [
-    # kept: normal brick & mortar doors ("B&M" is the real BIBLE's own value
-    # for offline - not "Offline")
-    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Saint-Honoré", "Flagship", "B&M", "Diptyque", 1],
-    ["Diptyque", "EMEA", "France", "Lyon", "Diptyque Lyon", "Boutique", "B&M", "Diptyque", 1],
-    ["Diptyque", "UK", "United Kingdom", "London", "Diptyque Marylebone", "Boutique", "B&M", "Diptyque", 1],
-    ["Diptyque", "NOAM", "United States", "New York", "Diptyque SoHo", "Boutique", "B&M", "Diptyque", 1],
-    ["Caron", "EMEA", "France", "Paris", "Boutique Saint-Honoré", "Boutique", "B&M", "Caron", 1],
+    # kept + FSS: real monobrand doors ("B&M" is the real BIBLE's own value
+    # for offline - not "Offline"; "FSS"/"FSF" are the real BIBLE's own DOOR
+    # TYPE values for a brand's own boutiques)
+    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Saint-Honoré", "FSS", "B&M", "Diptyque", 1],
+    ["Diptyque", "EMEA", "France", "Lyon", "Diptyque Lyon", "FSF", "B&M", "Diptyque", 1],
+    ["Diptyque", "UK", "United Kingdom", "London", "Diptyque Marylebone", "FSS", "B&M", "Diptyque", 1],
+    ["Diptyque", "NOAM", "United States", "New York", "Diptyque SoHo", "FSS", "B&M", "Diptyque", 1],
+    ["Caron", "EMEA", "France", "Paris", "Boutique Saint-Honoré", "FSS", "B&M", "Caron", 1],
+    # kept, but NOT FSS: a real physical door (not online, real door count)
+    # but wholesale distribution, not a Diptyque-owned boutique - must count
+    # towards nothing in region_totals/by_brand (closures/regional diff),
+    # matching the real BIBLE's massive wholesale-vs-FSS gap for mass-
+    # distributed brands (confirmed against Parfums de Marly/Amouage).
+    ["Diptyque", "EMEA", "France", "Paris", "Galeries Lafayette Haussmann", "Department Stores", "B&M", "Galeries Lafayette", 1],
     # excluded: OFF/Online == Online
     ["Diptyque", "EMEA", "France", "Paris", "Diptyque Website", "Brand.com", "Online", "Diptyque", 1],
     # excluded: CITY == ONLINE
@@ -30,8 +37,8 @@ SYNTHETIC_ROWS = [
     # marks e-commerce doors this way even when OFF/Online is mislabeled "B&M"
     ["Diptyque", "EMEA", "France", "Marseille Metro Area", "Marketplace listing", "Retail.com", "B&M", "SomeRetailer", 1],
     # excluded: blank/zero DOOR COUNT
-    ["Diptyque", "EMEA", "France", "Marseille", "Diptyque Marseille", "Boutique", "B&M", "Diptyque", 0],
-    ["Diptyque", "EMEA", "France", "Nice", "Diptyque Nice", "Boutique", "B&M", "Diptyque", None],
+    ["Diptyque", "EMEA", "France", "Marseille", "Diptyque Marseille", "FSS", "B&M", "Diptyque", 0],
+    ["Diptyque", "EMEA", "France", "Nice", "Diptyque Nice", "FSS", "B&M", "Diptyque", None],
 ]
 
 
@@ -132,17 +139,21 @@ def test_filter_bible_rows_excludes_online_and_zero_count(tmp_path):
     rows = load_bible_competition(make_bible_xlsx(tmp_path))
     kept, stats = filter_bible_rows(rows)
 
-    assert stats["total_loaded"] == 10
+    assert stats["total_loaded"] == 11
     assert stats["excluded_online"] == 3  # OFF/Online=Online, CITY=ONLINE, retail.com
     assert stats["excluded_no_door_count"] == 2  # 0 and blank
-    assert stats["retained"] == 5
-    assert len(kept) == 5
+    assert stats["retained"] == 6
+    assert len(kept) == 6
     kept_names = {row["DOOR NAME"] for row in kept}
     assert "Diptyque Website" not in kept_names
     assert "Diptyque E-shop" not in kept_names
     assert "Marketplace listing" not in kept_names
     assert "Diptyque Marseille" not in kept_names
     assert "Diptyque Nice" not in kept_names
+    # kept (not online, real door count) even though it's wholesale, not FSS -
+    # filter_bible_rows only applies the online/zero-count rules; the FSS-vs-
+    # wholesale distinction happens later, in build_bible_index().
+    assert "Galeries Lafayette Haussmann" in kept_names
 
 
 def test_filter_bible_rows_never_writes_to_disk(tmp_path):
@@ -173,6 +184,28 @@ def test_build_bible_index_region_totals(tmp_path):
 def test_build_bible_index_door_key_matches_regardless_of_formatting(tmp_path):
     index = build_bible_index(_kept_rows(tmp_path))
     key = ("diptyque", "france", "paris", "diptyque saint honore")
+    assert key in index["by_door_key"]
+
+
+def test_build_bible_index_excludes_wholesale_doors_from_totals_and_by_brand(tmp_path):
+    # Galeries Lafayette Haussmann is a real, offline, non-zero-count door
+    # (kept by filter_bible_rows) but DOOR TYPE="Department Stores", not
+    # FSS/FSF - it must not inflate region_totals or count towards
+    # possible-closure detection for Diptyque, which only ever tracks its
+    # own monobrand doors.
+    index = build_bible_index(_kept_rows(tmp_path))
+    assert index["region_totals"]["diptyque"]["EMEA"] == 2  # Paris FSS + Lyon FSF only
+    assert len(index["by_brand"]["diptyque"]) == 4  # not 5
+    door_names = {row["DOOR NAME"] for row in index["by_brand"]["diptyque"]}
+    assert "Galeries Lafayette Haussmann" not in door_names
+
+
+def test_build_bible_index_by_door_key_still_includes_wholesale_doors(tmp_path):
+    # by_door_key is used to avoid FALSE "new store" positives - a scraped
+    # store matching this exact address should still count as "already
+    # known" even though it's not counted as an FSS door anywhere else.
+    index = build_bible_index(_kept_rows(tmp_path))
+    key = ("diptyque", "france", "paris", "galeries lafayette haussmann")
     assert key in index["by_door_key"]
 
 

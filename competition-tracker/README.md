@@ -36,6 +36,13 @@ python run_report.py \
   --brands diptyque \
   --existing-file "/mnt/data/BIBLE KP & FM Distribution List.xlsx" \
   --no-email
+
+# + recoupement avec le PDF de référence Competition Distribution (optionnel) :
+python run_report.py \
+  --brands diptyque \
+  --existing-file "/mnt/data/BIBLE KP & FM Distribution List.xlsx" \
+  --reference-pdf "./Competition Distribution.pdf" \
+  --no-email
 ```
 
 Chaque exécution :
@@ -124,15 +131,101 @@ Sont exclues avant comparaison :
   Les marques ignorées pour cette raison sont listées en console
   (`(détection de fermeture ignorée pour ... : ...)`) - à traiter comme
   "vérification manuelle nécessaire", pas comme un résultat.
-- **`regional_total_differences.csv`** : total de portes BIBLE (`DOOR COUNT`
-  sommé) vs total scrapé, par marque et par région - seules les lignes avec
-  un écart réel sont listées. Fonctionne aussi pour les marques agrégées
-  (Diptyque), puisque cette comparaison ne nécessite que des totaux, pas le
-  détail par porte.
+- **`regional_total_differences.csv`** : total de portes BIBLE vs total
+  scrapé, par marque et par région - seules les lignes avec un écart réel
+  sont listées. Fonctionne aussi pour les marques agrégées (Diptyque),
+  puisque cette comparaison ne nécessite que des totaux, pas le détail par
+  porte.
 
 Les trois fichiers suivent la même règle que `_a_verifier.csv` : rien à
 signaler => le fichier n'est pas (re)créé, pour ne jamais laisser un
 résultat d'un run précédent traîner en silence.
+
+**Important** : le total BIBLE utilisé dans `regional_total_differences.csv`
+(et dans `three_source_comparison.csv` plus bas) ne compte que les portes
+dont `DOOR TYPE` est `FSS` ou `FSF` - jamais les milliers de portes
+wholesale/grands magasins/parfumeries qu'une marque à grosse distribution
+(Parfums de Marly, Amouage...) peut avoir dans la BIBLE. Sans ce filtre, le
+total BIBLE d'une marque à forte distribution wholesale peut dépasser
+1000 portes, ce qui n'a évidemment aucun sens à comparer à un scraping FSS.
+`by_door_key` (utilisé pour la détection de nouvelles boutiques) reste lui
+non filtré par DOOR TYPE, pour éviter un faux "nouvelle boutique" quand
+l'adresse exacte existe déjà dans la BIBLE sous une autre classification.
+
+## Recoupement avec le PDF de référence "Competition Distribution"
+
+`--reference-pdf "./Competition Distribution.pdf"` ajoute une troisième
+source, complémentaire et non-autoritaire : ce PDF contient des totaux
+FSS/FSF recherchés à la main, avec parfois des photos de boutiques et des
+notes de source, mais **jamais traité comme la vérité automatique** - il
+n'est utilisé que pour recouper, jamais pour trancher.
+
+### Ce qui est garanti
+
+- Le PDF n'est **jamais modifié** (lecture seule via `pdfplumber`).
+- Aucune valeur du PDF n'écrase ou ne complète automatiquement une ligne
+  BIBLE : `three_source_comparison.csv` affiche les trois chiffres côte à
+  côte, point.
+- Toute contradiction interne au PDF (ex. 20 boutiques dans le récapitulatif
+  global, 30 sur une autre page pour la même marque) est **conservée telle
+  quelle avec ses deux pages sources**, jamais réconciliée en un seul
+  chiffre - voir `pdf_reference_ambiguities.csv`.
+
+### Extraction
+
+Le PDF est un document en texte libre (pas un tableau structuré), donc
+l'extraction (`pdf_reference.py`) est un parseur heuristique ligne par
+ligne : repérage d'un nom de marque connu comme en-tête de section, d'un
+total mondial ("Worldwide total: 24 boutiques"), d'une ventilation
+régionale ("EMEA: 12"), d'une date de mise à jour ("Updated: February
+2026"), et de noms de boutiques en liste à puces ("- Paris: Nom"). Tout ce
+qui ne correspond clairement à aucun de ces motifs est loggé comme
+"ambigu" plutôt que deviné - voir `pdf_reference_ambiguities.csv` (motif
+non reconnu, entrée incomplète, valeur dupliquée/contradictoire).
+
+Chaque valeur extraite garde son numéro de page PDF d'origine
+(`source_page`), et si la page contient une image, `photo_available` /
+`photo_page` sont renseignés - **aucune image n'est extraite ou
+redistribuée**, seule la page de référence est indiquée (à ouvrir
+manuellement dans le PDF si besoin).
+
+### Fichiers générés
+
+- **`data/reference/competition_distribution_reference.json`** : le jeu de
+  données extrait, une entrée par valeur trouvée (`brand`, `reference_date`,
+  `worldwide_fss_total`, `region`, `country`, `city`, `boutique_name`,
+  `source_page`, `notes`, `confidence`, `photo_available`, `photo_page`).
+- **`pdf_reference_ambiguities.csv`** : contenu ambigu/incomplet, et chaque
+  valeur impliquée dans une contradiction interne au PDF (une ligne par
+  valeur en conflit, avec sa page).
+- **`three_source_comparison.csv`** : site web scrapé vs BIBLE vs PDF, par
+  marque et par région (+ une ligne `WORLDWIDE` par marque, y compris
+  quand le PDF ne donne qu'un total mondial sans ventilation régionale).
+  Colonnes : `BRAND | REGION | WEBSITE_TOTAL | BIBLE_TOTAL |
+  PDF_REFERENCE_TOTAL | WEBSITE_VS_BIBLE | WEBSITE_VS_PDF | BIBLE_VS_PDF |
+  PDF_REFERENCE_DATE | PDF_PAGE | STATUS | NOTES`.
+
+  `STATUS` :
+  | valeur | signifie |
+  |---|---|
+  | `MATCH` | les sources disponibles concordent exactement |
+  | `MINOR_DIFFERENCE` | écart < seuil (2) |
+  | `SIGNIFICANT_DIFFERENCE` | écart >= seuil |
+  | `PDF_CONTRADICTION` | le PDF se contredit lui-même sur cette ligne - `PDF_REFERENCE_TOTAL` reste vide plutôt que de choisir une valeur |
+  | `WEBSITE_PARTIAL` | le chiffre website n'est pas fiable pour cette comparaison (scraper en échec, confiance manuelle, ou résultat partiel) |
+  | `MANUAL_REVIEW` | moins de deux sources ont une valeur pour cette ligne - rien à comparer |
+
+  Ce fichier n'est écrit que si `--reference-pdf` et/ou `--existing-file`
+  (.xlsx) sont fournis.
+
+### Alias de marque
+
+`brand_aliases.json` fait correspondre les orthographes différentes d'une
+même marque selon la source (`MFK` = Maison Francis Kurkdjian, `PDM` =
+Parfums de Marly, `JHAG` = Juliette Has A Gun, `L'Artisan Parfumeur`,
+`Penhaligon's`...) - utilisé partout où une marque est comparée entre
+sources (BIBLE, PDF, site web). Ajouter une entrée dès qu'une marque
+n'est pas reconnue d'une source à l'autre.
 
 ## Ajouter une marque
 
@@ -243,23 +336,29 @@ Statut d'exécution (indépendant de la confiance) :
 brands.yaml                      config (une marque = un objet)
 region_mapping.py                pays -> région (EMEA/UK/NOAM/LATAM/CHINA/APAC)
 normalize.py                     normalisation texte (accents/casse/ponctuation) pour les comparaisons
+brand_aliases.json + .py         alias de marque entre sources (MFK -> Maison Francis Kurkdjian, ...)
 known_retailers_blocklist.json   revendeurs multi-marques connus à exclure
 scrapers/static.py                scrapers HTML statique (requests + BeautifulSoup)
 scrapers/dynamic.py                widget Stockist (API JSON) + Playwright (dernier recours)
 aggregate.py                     filtre FSS, région, historique/deltas/tendance, confiance
 photos.py                        téléchargement des photos de nouvelles boutiques
 diff_existing.py                 recoupement BIBLE .xlsx (porte par porte) + ancien export .csv
+pdf_reference.py                 extraction du PDF Competition Distribution (référence, non-autoritaire)
+three_source_comparison.py       comparaison website vs BIBLE vs PDF
 draft_regional_email.py          brouillon d'email pour les équipes régionales (jamais envoyé)
 report.py                        tableau HTML + export CSV/XLSX
 email_sender.py                  envoi Gmail SMTP
 run_report.py                    point d'entrée CLI
-tests/                           tests automatisés (pytest, onglet Competition synthétique)
+tests/                           tests automatisés (pytest, fixtures synthétiques)
 conftest.py                      ancre pytest à la racine du projet pour les imports
 data/snapshots/                  un relevé daté par run (JSON, gitignoré)
+data/reference/                  jeu de données extrait du PDF (JSON, gitignoré)
 photos/{slug}/                   photos téléchargées / placeholders (gitignoré)
 drafts/                           brouillons d'email régional (gitignoré)
 _a_verifier.csv                  classifications douteuses du dernier run (gitignoré)
 new_stores_not_in_bible.csv      boutiques scrapées absentes de la BIBLE (gitignoré)
 possible_closures.csv            portes BIBLE non retrouvées, TO VERIFY (gitignoré)
 regional_total_differences.csv  écarts de total par marque/région (gitignoré)
+pdf_reference_ambiguities.csv   contenu ambigu/contradictoire du PDF (gitignoré)
+three_source_comparison.csv     website vs BIBLE vs PDF (gitignoré)
 ```

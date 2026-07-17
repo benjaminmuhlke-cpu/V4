@@ -1,0 +1,10 @@
+{
+  "_comment": "Alias (as it appears in the BIBLE, the PDF, or anywhere else) -> canonical brand name exactly as written in brands.yaml. Maintained by hand - add an entry whenever a brand fails to match across sources because of a naming difference.",
+  "aliases": {
+    "MFK": "Maison Francis Kurkdjian",
+    "PDM": "Parfums de Marly",
+    "JHAG": "Juliette Has A Gun",
+    "L'ARTISAN PARFUMEUR": "L'Artisan Parfumeur",
+    "PENHALIGON'S": "Penhaligon's"
+  }
+}

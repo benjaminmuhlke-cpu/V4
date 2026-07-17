@@ -25,6 +25,7 @@ from pathlib import Path
 
 import openpyxl
 
+from brand_aliases import brand_match_key
 from normalize import normalize
 from region_mapping import REGIONS, get_region
 
@@ -198,6 +199,17 @@ def _door_count(value) -> int:
         return 0
 
 
+# DOOR TYPE values that represent a brand's own monobrand FSS/FSF door, as
+# opposed to wholesale/department-store/perfumery distribution. Confirmed
+# against the real BIBLE: DOOR TYPE literally contains "FSS" and "FSF" rows
+# alongside "Department Stores", "Perfumery", "Specialty Multi", etc.
+FSS_DOOR_TYPES = ("fss", "fsf")
+
+
+def _is_fss_door(row: dict) -> bool:
+    return normalize(row.get("DOOR TYPE")) in FSS_DOOR_TYPES
+
+
 def _is_online_row(row: dict) -> bool:
     if normalize(row.get("OFF/ONLINE")) == "online":
         return True
@@ -229,25 +241,39 @@ def filter_bible_rows(rows: list[dict]) -> tuple[list[dict], dict]:
 
 
 def _door_key(brand, country, city, door_name) -> tuple[str, str, str, str]:
-    return (normalize(brand), normalize(country), normalize(city), normalize(door_name))
+    return (brand_match_key(brand), normalize(country), normalize(city), normalize(door_name))
 
 
 def build_bible_index(rows: list[dict]) -> dict:
     """Index the filtered BIBLE rows for comparison:
-    - by_door_key: {(brand, country, city, door_name) normalized: [rows]}
-    - by_brand: {normalized brand: [rows]} - all doors for a brand
-    - region_totals: {normalized brand: {region: total DOOR COUNT}}, region
-      derived from our own region_mapping (not the BIBLE's own REGION text
-      column) so it lines up with the regions the scrapers compute.
+    - by_door_key: {(brand, country, city, door_name) normalized: [rows]} -
+      ALL door types, so a scraped FSS store that happens to match a BIBLE
+      row classified as e.g. "Department Stores" (a shop-in-shop, or just a
+      BIBLE mis-tag) still counts as "already known" rather than a false
+      "new store".
+    - by_brand: {normalized brand: [rows]} - FSS/FSF doors ONLY. This feeds
+      possible-closure detection, which asks "did this FSS boutique
+      disappear from the scrape" - a brand's thousands of wholesale/
+      department-store doors were never going to show up in an FSS scrape
+      in the first place, so they don't belong in that comparison.
+    - region_totals: {normalized brand: {region: total DOOR COUNT}} - same
+      FSS/FSF-only scope as by_brand, since this is compared directly
+      against an FSS-only website scrape (see find_regional_total_differences
+      and three_source_comparison.py). Region is derived from our own
+      region_mapping (not the BIBLE's own REGION text column) so it lines
+      up with the regions the scrapers compute.
     """
     by_door_key: dict[tuple, list[dict]] = {}
     by_brand: dict[str, list[dict]] = {}
     region_totals: dict[str, dict[str, int]] = {}
 
     for row in rows:
-        norm_brand = normalize(row.get("BRAND"))
+        norm_brand = brand_match_key(row.get("BRAND"))
         key = _door_key(row.get("BRAND"), row.get("COUNTRY"), row.get("CITY"), row.get("DOOR NAME"))
         by_door_key.setdefault(key, []).append(row)
+
+        if not _is_fss_door(row):
+            continue
         by_brand.setdefault(norm_brand, []).append(row)
 
         region = get_region(row.get("COUNTRY"))
@@ -326,7 +352,7 @@ def find_possible_closures(results: list[dict], bible_index: dict) -> tuple[list
     skipped = []
 
     for brand in results:
-        norm_brand = normalize(brand["brand"])
+        norm_brand = brand_match_key(brand["brand"])
         bible_doors = bible_index["by_brand"].get(norm_brand, [])
         if not bible_doors:
             continue  # brand not in the BIBLE at all - nothing to compare closures against
@@ -386,7 +412,7 @@ def find_regional_total_differences(results: list[dict], bible_index: dict) -> l
     for brand in results:
         if brand.get("status") not in ("ok", "manual") or brand.get("regions") is None:
             continue
-        norm_brand = normalize(brand["brand"])
+        norm_brand = brand_match_key(brand["brand"])
         bible_regions = bible_index["region_totals"].get(norm_brand)
         if bible_regions is None:
             continue  # brand not in the BIBLE at all - nothing to diff against

@@ -4,6 +4,12 @@ PyYAML>=6.0
 python-dotenv>=1.0
 openpyxl>=3.1
 
+# Only needed if --reference-pdf is used (optional Competition Distribution
+# PDF cross-reference). If import fails with "_cffi_backend" missing, run
+# `pip install --force-reinstall cffi` first - a broken system cffi/
+# cryptography link, not a pdfplumber bug.
+pdfplumber>=0.11
+
 # Only needed for scraper_type: js_widget brands that (unlike Stockist) expose
 # no JSON API and truly require rendering the page. Run `playwright install
 # chromium` once after installing this. Not required for the brands currently
@@ -12,3 +18,4 @@ playwright>=1.40
 
 # Tests (tests/) - not needed to run run_report.py itself.
 pytest>=7.4
+fpdf2>=2.7

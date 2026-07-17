@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """CLI entry point: python run_report.py [--brands mfk,diptyque]
                                           [--existing-file path/to/BIBLE.xlsx]
+                                          [--reference-pdf path/to/Competition Distribution.pdf]
                                           [--no-email]
 
 Scrapes brands.yaml, classifies FSS vs wholesale, computes deltas/trend vs
 the last snapshot, diffs against the existing Competition tracker (BIBLE
-xlsx door-level database, or the older regional-summary CSV), downloads
+xlsx door-level database, or the older regional-summary CSV), cross-checks
+against the optional Competition Distribution PDF reference, downloads
 new-store photos, drafts a regional-team email for whatever's still
 blocked, writes the CSV/XLSX report, and emails it (unless --no-email).
 """
@@ -32,10 +34,16 @@ from diff_existing import (
 )
 from draft_regional_email import generate_draft
 from email_sender import send_report_email
+from pdf_reference import (
+    build_ambiguities_rows, extract_pdf_pages, parse_reference_data,
+    save_reference_json, write_ambiguities_csv,
+)
 from photos import download_store_photos
 from report import build_html_report, rows_for_export, write_csv, write_xlsx
+from three_source_comparison import build_three_source_rows, write_three_source_csv
 
 BASE_DIR = Path(__file__).parent
+REFERENCE_JSON_PATH = BASE_DIR / "data" / "reference" / "competition_distribution_reference.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,16 +62,27 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--reference-pdf", type=str, default=None,
+        help=(
+            "Chemin vers 'Competition Distribution.pdf' (source complémentaire, manuellement "
+            "recherchée - jamais traitée comme vérité automatique). Extrait un jeu de données de "
+            "référence (data/reference/competition_distribution_reference.json), détecte les "
+            "contradictions internes au PDF (pdf_reference_ambiguities.csv), et alimente "
+            "three_source_comparison.csv (website vs BIBLE vs PDF)."
+        ),
+    )
+    parser.add_argument(
         "--no-email", action="store_true",
         help="Ne pas envoyer l'email, même si les identifiants Gmail sont configurés dans .env.",
     )
     return parser.parse_args()
 
 
-def _run_bible_comparison(results: list[dict], path: Path) -> list[dict]:
+def _run_bible_comparison(results: list[dict], path: Path) -> tuple[list[dict], dict]:
     """Door-level comparison against the real BIBLE .xlsx. Writes the three
-    dedicated output files and returns the regional-diff rows (used in the
-    HTML report body same as the legacy CSV discrepancies)."""
+    dedicated output files and returns (regional_diff_rows, bible_index) -
+    the index is reused for the three-source comparison if --reference-pdf
+    is also given."""
     raw_rows = load_bible_competition(path)
     kept_rows, stats = filter_bible_rows(raw_rows)
     print(
@@ -89,7 +108,31 @@ def _run_bible_comparison(results: list[dict], path: Path) -> list[dict]:
     write_rows_csv(regional_diff_rows, BASE_DIR / "regional_total_differences.csv")
     print(f"{len(regional_diff_rows)} écart(s) de total régional -> regional_total_differences.csv")
 
-    return regional_diff_rows
+    return regional_diff_rows, bible_index
+
+
+def _run_pdf_reference(brands: list[dict], path: Path) -> list[dict]:
+    """Extract the optional PDF reference dataset - read-only, never the
+    source of truth. Writes the JSON dataset and the ambiguities CSV."""
+    try:
+        pages = extract_pdf_pages(path)
+    except ImportError as exc:
+        print(f"pdfplumber n'est pas installé ({exc}) - PDF ignoré. Voir requirements.txt.")
+        return []
+
+    known_brand_names = [b["name"] for b in brands]
+    pdf_records = parse_reference_data(pages, known_brand_names)
+    ref_path = save_reference_json(pdf_records, REFERENCE_JSON_PATH)
+    print(
+        f"PDF '{path.name}' : {len(pages)} page(s) lue(s), {len(pdf_records)} valeur(s) extraite(s) "
+        f"-> {ref_path.relative_to(BASE_DIR)}"
+    )
+
+    ambiguity_rows = build_ambiguities_rows(pdf_records)
+    n_ambiguities = write_ambiguities_csv(ambiguity_rows, BASE_DIR / "pdf_reference_ambiguities.csv")
+    print(f"{n_ambiguities} ambiguïté(s)/contradiction(s) dans le PDF -> pdf_reference_ambiguities.csv")
+
+    return pdf_records
 
 
 def _run_legacy_csv_comparison(results: list[dict], path: Path) -> list[dict]:
@@ -134,12 +177,13 @@ def main() -> int:
                 print(f"  {brand['brand']}: {len(written)} photo(s)/placeholder(s) -> photos/{brand['slug']}/")
 
     discrepancies = []
+    bible_index = None
     existing_file = args.existing_file or os.environ.get("COMPETITION_EXPORT_CSV")
     if existing_file and Path(existing_file).exists():
         existing_path = Path(existing_file)
         suffix = existing_path.suffix.lower()
         if suffix == ".xlsx":
-            discrepancies = _run_bible_comparison(results, existing_path)
+            discrepancies, bible_index = _run_bible_comparison(results, existing_path)
         elif suffix == ".csv":
             discrepancies = _run_legacy_csv_comparison(results, existing_path)
         else:
@@ -148,6 +192,17 @@ def main() -> int:
         print(f"--existing-file défini ({existing_file}) mais introuvable - recoupement ignoré.")
     else:
         print("Pas de fichier existant fourni (--existing-file / COMPETITION_EXPORT_CSV) - recoupement ignoré.")
+
+    pdf_records = []
+    if args.reference_pdf and Path(args.reference_pdf).exists():
+        pdf_records = _run_pdf_reference(brands, Path(args.reference_pdf))
+    elif args.reference_pdf:
+        print(f"--reference-pdf défini ({args.reference_pdf}) mais introuvable - PDF ignoré.")
+
+    if bible_index is not None or pdf_records:
+        three_source_rows = build_three_source_rows(results, bible_index, pdf_records)
+        n_three_source = write_three_source_csv(three_source_rows, BASE_DIR / "three_source_comparison.csv")
+        print(f"{n_three_source} ligne(s) de comparaison à 3 sources -> three_source_comparison.csv")
 
     recipients_raw = os.environ.get("REGIONAL_TEAM_RECIPIENTS", "")
     regional_recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
