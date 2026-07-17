@@ -17,6 +17,8 @@ competition-tracker/photos/**/*.png
 competition-tracker/photos/**/*.txt
 competition-tracker/*.csv
 competition-tracker/*.xlsx
+competition-tracker/*.pdf
+competition-tracker/reports/
 competition-tracker/drafts/
 !competition-tracker/data/snapshots/.gitkeep
 !competition-tracker/data/reference/.gitkeep
