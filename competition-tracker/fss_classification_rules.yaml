@@ -1,0 +1,202 @@
+# Brand-specific FSS/FSF classification rules. One brand = one object,
+# keyed by brands.yaml's slug. Patterns are matched against normalize()'d
+# text (accents/case/punctuation stripped), so "Parfümerie" and "parfumerie"
+# are the same pattern.
+#
+# Every pattern below was seeded from a REAL raw Stockist pull for these 4
+# brands (not guessed) - see the brand-specific notes for what was actually
+# observed. Extend these lists by hand as new retailer/perfumery names show
+# up in _a_verifier.csv or fss_validation_sample.csv.
+#
+# Category priority (first match wins - see fss_classifier.py):
+#   1. exact_inclusions / known_fss_addresses          -> FSS (or FSF if flagship pattern)
+#   2. mall_or_location_exceptions                     -> FSS/FSF (rescues a name that would
+#                                                          otherwise hit an exclusion pattern below)
+#   3. exact_exclusions / known_non_fss_addresses      -> as tagged
+#   4. retailer_blocklist                              -> MULTIBRAND_RETAILER
+#   5. department_store_patterns                       -> DEPARTMENT_STORE
+#   6. perfumery_patterns                               -> PERFUMERY
+#   7. flagship_name_patterns                           -> FSF
+#   8. boutique_name_patterns                           -> FSS
+#   9. online markers (city=online, ".com" in name)     -> ONLINE
+#   10. anything else                                   -> UNCLEAR (manual_review_required)
+#
+# A location is NEVER classified FSS/FSF just because the brand's own name
+# appears in it (Etape "Do not classify a location as FSS merely because the
+# brand name appears in the location name") - only the specific patterns/
+# exact lists below do that, deliberately.
+
+_common_department_stores: &common_department_stores
+  - neiman marcus
+  - saks fifth avenue
+  - saks
+  - nordstrom
+  - bloomingdale
+  - dillard
+  - macy
+  - von maur
+  - bergdorf goodman
+  - holt renfrew
+  - harvey nichols
+  - harrods
+  - selfridges
+  - fenwick
+  - fortnum and mason
+  - fortnum
+  - liberty
+  - john lewis
+  - de bijenkorf
+  - el corte ingles
+  - printemps
+  - galeries lafayette
+  - breuninger
+  - h beauty
+  - kadewe
+  - nazih group
+
+_common_perfumery_markers: &common_perfumery_markers
+  - parfumerie
+  - parfumerija
+  - parfumeria
+  - profumeria
+  - perfumerie
+  - perfumeria
+  - niche perfumery
+  - concept store
+
+pdm:
+  # Real pull (u13979, 1157 raw records via world-grid Stockist search):
+  # genuine PDM locations follow "Parfums de Marly [City/Mall]" or
+  # "Marly Boutique [City]" naming - 22 distinct addresses found this way,
+  # very close to the known_total=24 reference. Everything else in the feed
+  # is dominated by independent German/Italian perfumeries (Stadt-
+  # Parfümerie Pieper, Schuback Parfümerie, Parfümerie Becker, Stephan
+  # Parfum & Kosmetik...) and department stores (Nordstrom x63, Neiman
+  # Marcus x35, Dillard's x25, Saks x31...) - confirms the Stockist endpoint
+  # returns ALL retailers stocking the brand, not a curated boutique list.
+  boutique_name_patterns:
+    - parfums de marly
+    - marly boutique
+  flagship_name_patterns: []
+  exact_inclusions: []
+  exact_exclusions: []
+  retailer_blocklist:
+    - stadt parfumerie
+    - schuback
+    - stephan parfum
+    - creme de la creme
+    - inoma concept store
+    - fragrance passion
+    - profumeria prestige
+    - amica parfumerie bittel
+    - zhor parfums
+    - bon sens
+    - ko koo noor
+  department_store_patterns: *common_department_stores
+  perfumery_patterns: *common_perfumery_markers
+  mall_or_location_exceptions: []
+  known_fss_addresses: []
+  known_non_fss_addresses:
+    # Store name says "Parfums de Marly" but the address names a specific
+    # multi-brand perfumery ("Perfumery & Co") as the actual host retailer -
+    # reads as a shop-in-shop/corner, not a dedicated PDM-operated boutique.
+    - "perfumery and co dubai mall"
+
+amouage:
+  # Real pull (u24895, 732 raw records): extremely clean pattern - genuine
+  # boutiques are literally named "Amouage Boutique | <location>" or
+  # "Amouage Flagship | <location>" (25 found). The one exception is
+  # "Amouage Manufacture and Visitor's Centre" (Muscat) - a factory/visitor
+  # site, not a retail boutique. Independent perfumeries (Nägele & Strubell,
+  # Addurà, Profumeria Extrait, Lana niche perfumery Split...), Nigeria's
+  # Montaigne Place chain (5 locations), and Japan's NOSE SHOP chain (5
+  # locations, explicitly called out in the brief) dominate the rest of the
+  # feed alongside the usual department stores and duty-free operators.
+  boutique_name_patterns:
+    - amouage boutique
+  flagship_name_patterns:
+    - amouage flagship
+  exact_inclusions: []
+  exact_exclusions:
+    - "amouage manufacture and visitor's centre"
+  retailer_blocklist:
+    - montaigne place
+    - nose shop
+    - scentopia
+    - nagele
+    - addura
+    - viled group
+    - metropoliten
+    - la jetee perfumery
+    - rescue spa
+    - cyrano hanshin arena
+  department_store_patterns: *common_department_stores
+  perfumery_patterns: *common_perfumery_markers
+  mall_or_location_exceptions: []
+  known_fss_addresses: []
+  known_non_fss_addresses: []
+
+creed:
+  # Real pull (u18812, 290 raw records): genuine boutiques follow a clean
+  # "Creed Boutique <Location>" pattern (17 found - all NOAM + 1 Mexico
+  # City; nothing in EMEA/UK/APAC/CHINA at all from this endpoint, which
+  # answers the brief's regional-coverage question directly - the
+  # creedboutique.com Stockist feed for genuine boutiques is NOAM/LATAM-only
+  # regardless of grid coverage). The feed is otherwise dominated by North
+  # American department stores (Neiman Marcus x41, Saks x34, Nordstrom x30,
+  # Bloomingdale's x20, Dillard's x9) and specialty multi-brand retailers
+  # (The Gents Place, Harry Rosen, Holt Renfrew, Marios, Mr. Sid, DFS
+  # Galleria duty-free).
+  boutique_name_patterns:
+    - creed boutique
+  flagship_name_patterns: []
+  exact_inclusions: []
+  exact_exclusions: []
+  retailer_blocklist:
+    - the gents place
+    - harry rosen
+    - marios
+    - mr sid
+    - kiki
+    - dfs galleria
+    - skins 6
+    - private edition
+    - tozzi
+    - henri vezina
+    - kiss and makeup
+    - be gorgeous
+  department_store_patterns: *common_department_stores
+  perfumery_patterns: *common_perfumery_markers
+  mall_or_location_exceptions: []
+  known_fss_addresses: []
+  known_non_fss_addresses: []
+
+jhag:
+  # Real pull (u6705, 169 raw records): only ONE genuine "Juliette has a
+  # gun" entry in the entire global grid search (Paris, 2 rue des Francs
+  # Bourgeois) - the feed is almost entirely independent perfumeries
+  # (Parfumerie Gradmann x8, Ethos - Le profumerie Sbruzzi x5, Le Duigou,
+  # Mazzolari, Parfümerie & Mode Kern), department stores (El Corte Inglés,
+  # De Bijenkorf, Liberty, John Lewis, Selfridges, Harvey Nichols, Harrods,
+  # Printemps), and multi-brand chains (Sephora, Douglas, Skins Cosmetics,
+  # Beauty X, Birchbox, NOSE). This is the brief's "no reliable FSS/FSF
+  # network can be isolated" case - see fss_filter_quality.py, which marks
+  # this brand INSUFFICIENT_DATA rather than reporting an inflated total.
+  boutique_name_patterns:
+    - juliette has a gun
+  flagship_name_patterns: []
+  exact_inclusions: []
+  exact_exclusions: []
+  retailer_blocklist:
+    - skins cosmetics
+    - beauty x
+    - birchbox
+    - nose
+    - ethos
+    - le duigou
+    - mazzolari
+  department_store_patterns: *common_department_stores
+  perfumery_patterns: *common_perfumery_markers
+  mall_or_location_exceptions: []
+  known_fss_addresses: []
+  known_non_fss_addresses: []

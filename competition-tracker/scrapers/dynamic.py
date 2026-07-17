@@ -98,6 +98,7 @@ def scrape_stockist(widget_tag: str, referer_url: str) -> tuple[list[dict], bool
                 "country": loc.get("country"),
                 "count": 1,
                 "source": f"stockist:{widget_tag} (near {city_label})",
+                "source_location_id": loc_id,
             })
 
     if not records:

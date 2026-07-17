@@ -113,6 +113,44 @@
       "status": "TO VERIFY",
       "verification_notes": "Do not upgrade past TO VERIFY without an official source or a reputable publication - current evidence is exactly the kind the rules say never to use alone.",
       "researched_at": "2026-07-17"
+    },
+    {
+      "brand": "Parfums de Marly",
+      "region": "EMEA",
+      "country": "France",
+      "city": "Paris",
+      "store_name": "Parfums de Marly Paris Le Marais",
+      "address": "45 rue Vieille du Temple, 75004 Paris, France",
+      "url": "https://us.parfums-de-marly.com/pages/store-locator",
+      "source_title": "Parfums de Marly official store locator",
+      "source_domain": "parfums-de-marly.com",
+      "source_type": "official_site",
+      "source_date": "2026-06-20",
+      "store_classification": "FSS",
+      "confidence": "high",
+      "evidence": "Official Parfums de Marly store locator lists this Le Marais boutique address; opening evidence dated 2026-06-20.",
+      "status": "CONFIRMED",
+      "verification_notes": "Already present in the BIBLE Competition sheet as \"PARFUMS DE MARLY LE MARAIS\" (DOOR TYPE=FSS, Paris, France) - not a new/missing door, kept in the cache for completeness only.",
+      "researched_at": "2026-07-17"
+    },
+    {
+      "brand": "Amouage",
+      "region": "NOAM",
+      "country": "United States",
+      "city": "Beverly Hills",
+      "store_name": "Amouage Beverly Hills - The Wadi",
+      "address": "311 North Beverly Drive, Beverly Hills, CA 90210",
+      "url": "https://amouage.com/pages/store-locator",
+      "source_title": "Amouage official store locator",
+      "source_domain": "amouage.com",
+      "source_type": "official_site",
+      "source_date": "2026-06-18",
+      "store_classification": "FSS",
+      "confidence": "high",
+      "evidence": "Official Amouage store locator lists this Beverly Hills boutique (\"The Wadi\") at 311 North Beverly Drive; opening evidence dated approximately 2026-06-18.",
+      "status": "CONFIRMED",
+      "verification_notes": "Not found in the BIBLE under any door name for Amouage in Beverly Hills (only \"BEVERLY HILLS PERFUMERY\" and \"NEIMAN MARCUS BEVERLY HILLS\" exist there, both non-Amouage-owned) - genuinely absent, qualifies for RECENT OPENINGS.",
+      "researched_at": "2026-07-17"
     }
   ]
 }

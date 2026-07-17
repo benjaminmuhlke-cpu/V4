@@ -37,6 +37,12 @@ from diff_existing import (
 )
 from draft_regional_email import generate_draft
 from email_sender import send_report_email
+from brand_aliases import brand_match_key
+from fss_filter_quality import (
+    FILTER_QUALITY_COLUMNS, VALIDATION_SAMPLE_COLUMNS, bible_fss_fsf_total,
+    build_filter_quality_row, build_validation_sample, compute_precision_from_verdicts,
+    load_previous_verdicts,
+)
 from online_research import (
     CACHE_PATH_DEFAULT, FALLBACK_COLUMNS, brands_needing_fallback, build_fallback_rows,
     clear_brand_entries, fallback_summary_by_brand, load_cache, save_cache,
@@ -46,6 +52,7 @@ from pdf_reference import (
     save_reference_json, write_ambiguities_csv,
 )
 from photos import download_store_photos
+from recent_openings import RECENT_OPENING_COLUMNS, STILL_TO_VERIFY_COLUMNS, find_recent_openings
 from report import build_html_report, rows_for_export, write_csv, write_xlsx
 from three_source_comparison import build_three_source_rows, write_three_source_csv
 
@@ -99,11 +106,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _run_bible_comparison(results: list[dict], path: Path) -> tuple[list[dict], dict]:
-    """Door-level comparison against the real BIBLE .xlsx. Writes the three
-    dedicated output files and returns (regional_diff_rows, bible_index) -
-    the index is reused for the three-source comparison if --reference-pdf
-    is also given."""
+def _load_bible(path: Path) -> dict:
+    """Door-level index of the real BIBLE .xlsx (read-only, never
+    modified) - built once, reused for new-store/closure/regional-diff
+    detection, the FSS filter-quality assessment, and the three-source
+    comparison."""
     raw_rows = load_bible_competition(path)
     kept_rows, stats = filter_bible_rows(raw_rows)
     print(
@@ -112,14 +119,84 @@ def _run_bible_comparison(results: list[dict], path: Path) -> tuple[list[dict], 
         f"{stats['excluded_no_door_count']} exclue(s) (DOOR COUNT vide/0), "
         f"{stats['retained']} conservée(s) pour comparaison."
     )
+    return build_bible_index(kept_rows)
 
-    bible_index = build_bible_index(kept_rows)
 
+def _run_fss_classification_quality(brands: list[dict], results: list[dict], bible_index: dict) -> dict[str, str]:
+    """data/fss_validation_sample.csv + data/fss_filter_quality.csv for every
+    brand with a dedicated fss_classification_rules.yaml entry. Reads any
+    prior run's filled-in MANUAL_VERDICT column (if the file already exists)
+    to compute precision before overwriting it with this run's fresh sample.
+    Returns {brand name -> FILTER_STATUS} so _run_bible_comparison() can
+    gate closure detection on it (never RELIABLE until a human has verified
+    a sample - see fss_filter_quality.determine_filter_status).
+    """
+    validation_path = DATA_DIR / "fss_validation_sample.csv"
+    previous_verdicts = load_previous_verdicts(validation_path)
+
+    all_sample_rows = []
+    quality_rows = []
+    filter_statuses: dict[str, str] = {}
+
+    for result in results:
+        if result.get("fss_classified_records") is None:
+            continue
+        brand_name = result["brand"]
+        source_brand = next((b for b in brands if b["name"] == brand_name), None)
+        source_url = source_brand.get("store_locator_url") if source_brand else None
+
+        sample_rows = build_validation_sample(
+            brand_name, result["fss_classified_records"], source_url, bible_index=bible_index,
+        )
+        all_sample_rows.extend(sample_rows)
+
+        reviewed, false_positives, false_negatives = compute_precision_from_verdicts(previous_verdicts, brand_name)
+        quality_row = build_filter_quality_row(
+            brand_name, result["stats"], bible_index,
+            precision_sample_size=reviewed, false_positives=false_positives, false_negatives=false_negatives,
+            confidence_label=result.get("confidence"),
+        )
+        quality_rows.append(quality_row)
+        filter_statuses[brand_match_key(brand_name)] = quality_row["FILTER_STATUS"]
+
+    write_rows_csv(all_sample_rows, validation_path, fieldnames=VALIDATION_SAMPLE_COLUMNS)
+    write_rows_csv(quality_rows, DATA_DIR / "fss_filter_quality.csv", fieldnames=FILTER_QUALITY_COLUMNS)
+    if quality_rows:
+        print(
+            f"{len(quality_rows)} marque(s) évaluée(s) pour la qualité du filtre FSS/FSF -> "
+            f"data/fss_filter_quality.csv, {len(all_sample_rows)} ligne(s) d'échantillon -> data/fss_validation_sample.csv"
+        )
+        for row in quality_rows:
+            print(f"  [{row['FILTER_STATUS']:18s}] {row['BRAND']}: {row['INCLUDED_FSS_FSF']} FSS/FSF inclus, {row['NOTES']}")
+
+    return filter_statuses
+
+
+def _run_recent_openings(results: list[dict], bible_index: dict) -> None:
+    """data/recent_openings.csv + data/recent_openings_still_to_verify.csv -
+    see recent_openings.py's module docstring for the two discovery routes
+    and the exact qualification rules. Purely a reporting layer over the
+    online research cache + the already-built BIBLE index; no new scraping
+    or classification logic here."""
+    cache = load_cache(CACHE_PATH_DEFAULT)
+    opened_rows, to_verify_rows = find_recent_openings(cache, bible_index, results)
+    write_rows_csv(opened_rows, DATA_DIR / "recent_openings.csv", fieldnames=RECENT_OPENING_COLUMNS)
+    write_rows_csv(to_verify_rows, DATA_DIR / "recent_openings_still_to_verify.csv", fieldnames=STILL_TO_VERIFY_COLUMNS)
+    print(f"{len(opened_rows)} ouverture(s) récente(s) confirmée(s), absente(s) de la BIBLE -> data/recent_openings.csv")
+    if to_verify_rows:
+        print(f"{len(to_verify_rows)} boutique(s) référencée(s) sans date d'ouverture -> data/recent_openings_still_to_verify.csv")
+
+
+def _run_bible_comparison(results: list[dict], bible_index: dict, fss_filter_statuses: dict[str, str] | None = None) -> list[dict]:
+    """Door-level comparison against an already-built BIBLE index. Writes
+    the three dedicated output files and returns regional_diff_rows.
+    fss_filter_statuses (brand -> FILTER_STATUS, from fss_filter_quality.py)
+    disables closure detection for any brand not yet marked RELIABLE."""
     new_stores_rows = find_new_stores(results, bible_index)
     n_new = write_rows_csv(new_stores_rows, BASE_DIR / "new_stores_not_in_bible.csv")
     print(f"{n_new} nouvelle(s) boutique(s) absente(s) de la BIBLE -> new_stores_not_in_bible.csv")
 
-    closure_rows, skipped = find_possible_closures(results, bible_index)
+    closure_rows, skipped = find_possible_closures(results, bible_index, fss_filter_statuses)
     n_closures = write_rows_csv(closure_rows, BASE_DIR / "possible_closures.csv")
     print(f"{n_closures} fermeture(s) possible(s) (TO VERIFY, jamais confirmée) -> possible_closures.csv")
     for skip in skipped:
@@ -129,7 +206,7 @@ def _run_bible_comparison(results: list[dict], path: Path) -> tuple[list[dict], 
     write_rows_csv(regional_diff_rows, BASE_DIR / "regional_total_differences.csv")
     print(f"{len(regional_diff_rows)} écart(s) de total régional -> regional_total_differences.csv")
 
-    return regional_diff_rows, bible_index
+    return regional_diff_rows
 
 
 def _run_pdf_reference(brands: list[dict], path: Path) -> list[dict]:
@@ -244,7 +321,10 @@ def main() -> int:
         existing_path = Path(existing_file)
         suffix = existing_path.suffix.lower()
         if suffix == ".xlsx":
-            discrepancies, bible_index = _run_bible_comparison(results, existing_path)
+            bible_index = _load_bible(existing_path)
+            fss_filter_statuses = _run_fss_classification_quality(brands, results, bible_index)
+            discrepancies = _run_bible_comparison(results, bible_index, fss_filter_statuses)
+            _run_recent_openings(results, bible_index)
         elif suffix == ".csv":
             discrepancies = _run_legacy_csv_comparison(results, existing_path)
         else:

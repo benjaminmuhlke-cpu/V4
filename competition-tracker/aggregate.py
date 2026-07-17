@@ -13,6 +13,8 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
+from fss_classifier import FSS_CATEGORIES, classify_locations
+from fss_classifier import load_rules as load_fss_rules
 from region_mapping import REGIONS, get_region
 from scrapers.static import ScraperError, scrape_caron, scrape_diptyque, scrape_mfk, scrape_nishane
 from scrapers.dynamic import scrape_stockist
@@ -205,6 +207,97 @@ def aggregate_country_counts(records: list[dict]) -> tuple[dict, list[dict]]:
     return totals, verify_rows
 
 
+ALL_FSS_CLASSIFICATION_CATEGORIES = (
+    "FSS", "FSF", "DEPARTMENT_STORE", "PERFUMERY", "MULTIBRAND_RETAILER",
+    "CORNER_OR_CONCESSION", "ONLINE", "UNCLEAR",
+)
+
+
+def aggregate_stores_with_fss_rules(records: list[dict], brand_slug: str, fss_rules: dict) -> tuple[dict, list[dict], list[dict], dict, list[dict]]:
+    """FSS-filter + region-classify using fss_classification_rules.yaml's
+    deterministic, brand-specific rules (fss_classifier.py) instead of the
+    generic keyword/blocklist filter in classify_store() - used only for
+    brands with an entry in that YAML (see process_brand()).
+
+    Returns (region_totals, included_stores, verify_rows, stats,
+    classified_records). classified_records is the full per-location
+    evidence trail (raw fields + classification + reason + rule + confidence
+    + manual_review_required) for every raw record - used to build
+    fss_validation_sample.csv and fss_filter_quality.csv. Never dropped or
+    merged: one classification per raw record, always.
+    """
+    classified = classify_locations(records, brand_slug, fss_rules)
+    totals = _empty_region_totals()
+    verify_rows = []
+    included_stores = []
+    category_counts = {c: 0 for c in ALL_FSS_CLASSIFICATION_CATEGORIES}
+
+    for raw, c in zip(records, classified):
+        category_counts[c["classification"]] += 1
+
+        # Resolved for every record (not just FSS/FSF ones) so the
+        # validation sample can show "examples from every region" across
+        # included AND excluded/ambiguous locations alike.
+        country = _resolve_country(raw, brand_slug)
+        region = get_region(country) if country else None
+        c["resolved_country"] = country
+        c["resolved_region"] = region
+
+        if c["manual_review_required"]:
+            verify_rows.append({
+                "brand": None,
+                "store_name": raw.get("name"),
+                "address": raw.get("address") or raw.get("city_postal") or raw.get("city"),
+                "included": c["classification"] in FSS_CATEGORIES,
+                "reason": f"[{c['classification']}] {c['classification_reason']}",
+                "source": raw.get("source"),
+            })
+
+        if c["classification"] not in FSS_CATEGORIES:
+            continue
+
+        if region is None:
+            # FSS/FSF by classification but country unresolved - never drop
+            # it from view without a trace, even if the rule that matched
+            # didn't already require manual review.
+            if not c["manual_review_required"]:
+                note = "pays introuvable" if not country else f"pays '{country}' non reconnu dans region_mapping"
+                verify_rows.append({
+                    "brand": None, "store_name": raw.get("name"),
+                    "address": raw.get("address") or raw.get("city"),
+                    "included": True, "reason": f"[{c['classification']}] {note}",
+                    "source": raw.get("source"),
+                })
+            continue
+
+        totals[region] += raw.get("count", 1)
+        included_stores.append({
+            "name": raw.get("name"),
+            "address": raw.get("address") or raw.get("city_postal"),
+            "city": raw.get("city"),
+            "country": country,
+            "region": region,
+            "image_url": raw.get("image_url"),
+        })
+
+    # "Confidently excluded as not-FSS" for coverage_audit.py's
+    # MIXES_WHOLESALE signal - broader than the old blocklist-only count
+    # since this pipeline distinguishes several exclusion categories.
+    confidently_excluded = (
+        category_counts["MULTIBRAND_RETAILER"] + category_counts["DEPARTMENT_STORE"]
+        + category_counts["PERFUMERY"] + category_counts["CORNER_OR_CONCESSION"]
+    )
+    stats = {
+        "raw_count": len(records),
+        "included_count": len(included_stores),
+        "blocklist_excluded_count": confidently_excluded,
+        "ambiguous_count": category_counts["UNCLEAR"],
+        "name_ambiguous_count": category_counts["UNCLEAR"],
+        "category_counts": category_counts,
+    }
+    return totals, included_stores, verify_rows, stats, classified
+
+
 def _run_scraper(brand: dict) -> tuple[list[dict], bool]:
     """Returns (records, partial). partial is True when the scraper itself
     knows its coverage may be clipped (currently only Stockist, which hits a
@@ -228,9 +321,18 @@ def _run_scraper(brand: dict) -> tuple[list[dict], bool]:
     raise ScraperError(f"scraper_type '{brand['scraper_type']}' has no automated scraper (manual brand)")
 
 
-def process_brand(brand: dict, blocklist: list[str]) -> dict:
+def process_brand(brand: dict, blocklist: list[str], fss_rules: dict | None = None) -> dict:
     """Scrape + classify one brand. Never raises - a failed brand is
-    reported as such rather than blocking the rest of the run (Etape 6)."""
+    reported as such rather than blocking the rest of the run (Etape 6).
+
+    fss_rules (from fss_classifier.load_rules()) is consulted first: a
+    brand with an entry there gets the deterministic, brand-specific
+    classification pipeline (fss_classifier.py) instead of the generic
+    keyword/blocklist filter - see fss_classification_rules.yaml.
+    """
+    if fss_rules is None:
+        fss_rules = load_fss_rules()
+
     result = {
         "brand": brand["name"],
         "slug": brand["slug"],
@@ -245,6 +347,7 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
         "stores": [],
         "partial": False,
         "scrape_stats": None,
+        "fss_classified_records": None,
     }
 
     if brand["scraper_type"] == "manual":
@@ -260,8 +363,13 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
         return result
 
     result["partial"] = partial
+    classified_records = None
 
-    if brand.get("parser") == "diptyque":
+    if brand["slug"] in fss_rules:
+        totals, stores, verify_rows, stats, classified_records = aggregate_stores_with_fss_rules(
+            records, brand["slug"], fss_rules
+        )
+    elif brand.get("parser") == "diptyque":
         totals, verify_rows = aggregate_country_counts(records)
         stores = []  # Diptyque only gives per-country totals, no per-store detail
         # included_count=None (not 0) is a deliberate sentinel: this source
@@ -286,13 +394,15 @@ def process_brand(brand: dict, blocklist: list[str]) -> dict:
     result["verify_rows"] = verify_rows
     result["stores"] = stores
     result["scrape_stats"] = stats
+    result["fss_classified_records"] = classified_records
     return result
 
 
 def run_all(brands: list[dict], only_slugs: list[str] | None = None) -> list[dict]:
     blocklist = load_blocklist()
+    fss_rules = load_fss_rules()
     selected = [b for b in brands if only_slugs is None or b["slug"] in only_slugs]
-    return [process_brand(b, blocklist) for b in selected]
+    return [process_brand(b, blocklist, fss_rules) for b in selected]
 
 
 def write_a_verifier_csv(results: list[dict], path: Path = A_VERIFIER_PATH) -> int:

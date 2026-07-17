@@ -298,6 +298,34 @@ def test_find_possible_closures_skips_unreliable_scrapes(tmp_path, overrides, ex
     assert expected_reason_snippet in skipped[0]["reason"]
 
 
+def test_find_possible_closures_skips_when_fss_filter_not_reliable(tmp_path):
+    """A brand's own scrape can look complete and confident, yet closure
+    detection must still stay off if its dedicated FSS classifier hasn't
+    been marked RELIABLE by a human-reviewed sample yet."""
+    index = build_bible_index(_kept_rows(tmp_path))
+    result = _reliable_diptyque_result([
+        {"name": "Diptyque Saint-Honoré", "city": "Paris", "country": "France"},
+        {"name": "Diptyque Lyon", "city": "Lyon", "country": "France"},
+        {"name": "Diptyque SoHo", "city": "New York", "country": "United States"},
+    ])
+    closures, skipped = find_possible_closures([result], index, fss_filter_statuses={"diptyque": "NEEDS_REVIEW"})
+    assert closures == []
+    assert len(skipped) == 1
+    assert "NEEDS_REVIEW" in skipped[0]["reason"]
+
+
+def test_find_possible_closures_runs_when_fss_filter_reliable(tmp_path):
+    index = build_bible_index(_kept_rows(tmp_path))
+    result = _reliable_diptyque_result([
+        {"name": "Diptyque Saint-Honoré", "city": "Paris", "country": "France"},
+        {"name": "Diptyque Lyon", "city": "Lyon", "country": "France"},
+        {"name": "Diptyque SoHo", "city": "New York", "country": "United States"},
+    ])
+    closures, skipped = find_possible_closures([result], index, fss_filter_statuses={"diptyque": "RELIABLE"})
+    assert skipped == []
+    assert len(closures) == 1
+
+
 def test_find_possible_closures_skips_incomplete_coverage(tmp_path):
     index = build_bible_index(_kept_rows(tmp_path))
     # BIBLE has 4 Diptyque doors; scraper only found 1 (25% coverage) -> skip.

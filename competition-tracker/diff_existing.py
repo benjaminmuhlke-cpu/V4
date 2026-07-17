@@ -318,7 +318,7 @@ def find_new_stores(results: list[dict], bible_index: dict) -> list[dict]:
 MIN_COVERAGE_RATIO_FOR_CLOSURES = 0.5
 
 
-def _closure_detection_skip_reason(brand: dict, bible_brand_total_doors: int) -> str | None:
+def _closure_detection_skip_reason(brand: dict, bible_brand_total_doors: int, fss_filter_statuses: dict[str, str] | None) -> str | None:
     if brand.get("status") == "error":
         return "le scraper a échoué (voir la colonne erreur du rapport) - fiabilité non garantie"
     if brand.get("status") == "manual":
@@ -327,6 +327,10 @@ def _closure_detection_skip_reason(brand: dict, bible_brand_total_doors: int) ->
         return "confiance manuelle - filtre FSS non fiable, on ne déduit pas de fermeture de cette donnée"
     if brand.get("partial"):
         return "couverture scraper probablement tronquée (plafond de résultats atteint) - résultat partiel"
+    if fss_filter_statuses is not None:
+        status = fss_filter_statuses.get(brand_match_key(brand["brand"]))
+        if status is not None and status != "RELIABLE":
+            return f"filtre FSS/FSF de cette marque marqué {status} (pas RELIABLE) dans fss_filter_quality.csv - fermetures désactivées jusqu'à validation"
     if not brand.get("stores"):
         return "pas de détail par boutique disponible pour cette marque (données agrégées uniquement)"
     scraped_count = len(brand["stores"])
@@ -338,7 +342,9 @@ def _closure_detection_skip_reason(brand: dict, bible_brand_total_doors: int) ->
     return None
 
 
-def find_possible_closures(results: list[dict], bible_index: dict) -> tuple[list[dict], list[dict]]:
+def find_possible_closures(
+    results: list[dict], bible_index: dict, fss_filter_statuses: dict[str, str] | None = None
+) -> tuple[list[dict], list[dict]]:
     """BIBLE doors not matched by any scraped store for a brand - NEVER
     labelled as a confirmed closure, always "TO VERIFY": a door can be
     missing from a scrape for reasons that have nothing to do with the
@@ -346,7 +352,10 @@ def find_possible_closures(results: list[dict], bible_index: dict) -> tuple[list
 
     A brand is skipped entirely (no closure rows produced, ever) when its
     scrape isn't reliable enough to trust an absence - see
-    _closure_detection_skip_reason(). Returns (closure_rows, skipped_notes).
+    _closure_detection_skip_reason(). fss_filter_statuses (brand name ->
+    FILTER_STATUS from fss_filter_quality.py) adds one more such reason:
+    closure detection stays off for a brand until its dedicated FSS
+    classifier has been marked RELIABLE. Returns (closure_rows, skipped_notes).
     """
     closure_rows = []
     skipped = []
@@ -358,7 +367,7 @@ def find_possible_closures(results: list[dict], bible_index: dict) -> tuple[list
             continue  # brand not in the BIBLE at all - nothing to compare closures against
 
         bible_brand_total_doors = len(bible_doors)
-        skip_reason = _closure_detection_skip_reason(brand, bible_brand_total_doors)
+        skip_reason = _closure_detection_skip_reason(brand, bible_brand_total_doors, fss_filter_statuses)
         if skip_reason:
             skipped.append({"brand": brand["brand"], "reason": skip_reason})
             continue
