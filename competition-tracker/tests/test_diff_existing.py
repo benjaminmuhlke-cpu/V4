@@ -15,21 +15,23 @@ HEADERS = ["BRAND", "REGION", "COUNTRY", "CITY", "DOOR NAME", "DOOR TYPE", "OFF/
 # and normalization edge case (accents/case/punctuation) the real BIBLE can
 # contain, without needing the real file.
 SYNTHETIC_ROWS = [
-    # kept: normal offline doors
-    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Saint-Honoré", "Flagship", "Offline", "Diptyque", 1],
-    ["Diptyque", "EMEA", "France", "Lyon", "Diptyque Lyon", "Boutique", "Offline", "Diptyque", 1],
-    ["Diptyque", "UK", "United Kingdom", "London", "Diptyque Marylebone", "Boutique", "Offline", "Diptyque", 1],
-    ["Diptyque", "NOAM", "United States", "New York", "Diptyque SoHo", "Boutique", "Offline", "Diptyque", 1],
-    ["Caron", "EMEA", "France", "Paris", "Boutique Saint-Honoré", "Boutique", "Offline", "Caron", 1],
+    # kept: normal brick & mortar doors ("B&M" is the real BIBLE's own value
+    # for offline - not "Offline")
+    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Saint-Honoré", "Flagship", "B&M", "Diptyque", 1],
+    ["Diptyque", "EMEA", "France", "Lyon", "Diptyque Lyon", "Boutique", "B&M", "Diptyque", 1],
+    ["Diptyque", "UK", "United Kingdom", "London", "Diptyque Marylebone", "Boutique", "B&M", "Diptyque", 1],
+    ["Diptyque", "NOAM", "United States", "New York", "Diptyque SoHo", "Boutique", "B&M", "Diptyque", 1],
+    ["Caron", "EMEA", "France", "Paris", "Boutique Saint-Honoré", "Boutique", "B&M", "Caron", 1],
     # excluded: OFF/Online == Online
-    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Website", "Ecommerce", "Online", "Diptyque", 1],
+    ["Diptyque", "EMEA", "France", "Paris", "Diptyque Website", "Brand.com", "Online", "Diptyque", 1],
     # excluded: CITY == ONLINE
-    ["Diptyque", "EMEA", "France", "ONLINE", "Diptyque E-shop", "Ecommerce", "Offline", "Diptyque", 1],
-    # excluded: RETAILER contains retail.com (case-insensitive)
-    ["Diptyque", "EMEA", "France", "Paris", "Marketplace listing", "Marketplace", "Offline", "SomeRetail.COM", 1],
+    ["Diptyque", "EMEA", "France", "ONLINE", "Diptyque E-shop", "Retail.com", "B&M", "Diptyque", 1],
+    # excluded: DOOR TYPE contains retail.com (case-insensitive) - real BIBLE
+    # marks e-commerce doors this way even when OFF/Online is mislabeled "B&M"
+    ["Diptyque", "EMEA", "France", "Marseille Metro Area", "Marketplace listing", "Retail.com", "B&M", "SomeRetailer", 1],
     # excluded: blank/zero DOOR COUNT
-    ["Diptyque", "EMEA", "France", "Marseille", "Diptyque Marseille", "Boutique", "Offline", "Diptyque", 0],
-    ["Diptyque", "EMEA", "France", "Nice", "Diptyque Nice", "Boutique", "Offline", "Diptyque", None],
+    ["Diptyque", "EMEA", "France", "Marseille", "Diptyque Marseille", "Boutique", "B&M", "Diptyque", 0],
+    ["Diptyque", "EMEA", "France", "Nice", "Diptyque Nice", "Boutique", "B&M", "Diptyque", None],
 ]
 
 
@@ -68,6 +70,62 @@ def test_load_bible_competition_missing_sheet_raises(tmp_path):
 def test_load_bible_competition_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_bible_competition(tmp_path / "does_not_exist.xlsx")
+
+
+def _corrupt_defined_names(path):
+    """Reproduce the real BIBLE's corruption: a legacy Print_Titles defined
+    name whose value is the literal text "#N/A", which openpyxl's defined-
+    name parser rejects outright even though the sheet data is fine."""
+    import zipfile
+
+    data = path.read_bytes()
+    with zipfile.ZipFile(path, "r") as src:
+        names = src.namelist()
+        contents = {n: src.read(n) for n in names}
+    workbook_xml = contents["xl/workbook.xml"].decode("utf-8")
+    # openpyxl always emits an empty self-closing <definedNames /> - replace
+    # it (not just insert alongside) or the file would end up with two
+    # definedNames elements, which is a different kind of invalid.
+    assert "<definedNames />" in workbook_xml or "<definedNames/>" in workbook_xml
+    injected = workbook_xml.replace("<definedNames />", "<definedNames></definedNames>").replace(
+        "<definedNames></definedNames>",
+        '<definedNames><definedName name="_xlnm.Print_Titles" '
+        'localSheetId="0">#N/A</definedName></definedNames>',
+    )
+    contents["xl/workbook.xml"] = injected.encode("utf-8")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as dst:
+        for name, payload in contents.items():
+            dst.writestr(name, payload)
+    return data  # original (uncorrupted) bytes, for the "never modified further" check
+
+
+def test_load_bible_competition_survives_corrupt_defined_names(tmp_path):
+    """Regression test for the real BIBLE file, which openpyxl otherwise
+    refuses to open at all with 'is not a valid print titles definition'."""
+    path = make_bible_xlsx(tmp_path)
+
+    # Sanity check: confirm this reproduces the actual openpyxl failure mode
+    # before testing our workaround, so the test would fail loudly if a
+    # future openpyxl version stops choking on this pattern.
+    _corrupt_defined_names(path)
+    with pytest.raises(ValueError):
+        openpyxl.load_workbook(path, read_only=True, data_only=True)
+
+    rows = load_bible_competition(path)
+    assert len(rows) == len(SYNTHETIC_ROWS)
+    assert rows[0]["BRAND"] == "Diptyque"
+
+
+def test_load_bible_competition_never_writes_to_the_corrupt_file(tmp_path):
+    path = make_bible_xlsx(tmp_path)
+    _corrupt_defined_names(path)
+    bytes_before = path.read_bytes()
+    mtime_before = path.stat().st_mtime
+
+    load_bible_competition(path)
+
+    assert path.read_bytes() == bytes_before
+    assert path.stat().st_mtime == mtime_before
 
 
 def test_filter_bible_rows_excludes_online_and_zero_count(tmp_path):

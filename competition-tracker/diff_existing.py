@@ -18,6 +18,9 @@ Two supported inputs (dispatched on file extension in run_report.py):
 from __future__ import annotations
 
 import csv
+import io
+import re
+import zipfile
 from pathlib import Path
 
 import openpyxl
@@ -31,9 +34,11 @@ SIGNIFICANT_DIFF_THRESHOLD = 2
 
 COMPETITION_SHEET_NAME = "Competition"
 
-# Substring markers (checked on the raw, un-normalized RETAILER text) that
-# indicate an online/marketplace listing rather than a physical door.
-ONLINE_RETAILER_MARKERS = ("retail.com",)
+# Substring markers checked against the DOOR TYPE column (case-insensitive)
+# that indicate an online/marketplace listing rather than a physical door -
+# confirmed against the real BIBLE: "Retail.com" is DOOR TYPE's own value
+# for e-commerce doors (e.g. "AHLENS.COM"), not something found in RETAILER.
+ONLINE_DOOR_TYPE_MARKERS = ("retail.com",)
 
 
 # --- Legacy CSV export path (backward compatible) --------------------------
@@ -115,6 +120,39 @@ def compare_with_existing(results: list[dict], existing: dict[str, dict]) -> lis
 
 # --- Door-level BIBLE xlsx path ---------------------------------------------
 
+def _strip_defined_names(path: Path) -> io.BytesIO:
+    """Return an in-memory copy of the xlsx with xl/workbook.xml's
+    <definedNames> block removed, without ever writing anything back to the
+    original file. Some real-world workbooks (this one included) accumulate
+    years of leftover macro/named-range artifacts - broken #REF!s, or here a
+    Print_Titles definition whose value is the literal text "#N/A" - that
+    openpyxl's defined-name parser rejects outright even though the actual
+    sheet data is perfectly readable. We don't use named ranges for
+    anything, so dropping them is a safe way to still get at the rows.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(path, "r") as src, zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "xl/workbook.xml":
+                data = re.sub(rb"<definedNames>.*?</definedNames>", b"", data, flags=re.DOTALL)
+            dst.writestr(item, data)
+    buffer.seek(0)
+    return buffer
+
+
+def _open_workbook_readonly(path: Path):
+    try:
+        return openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except ValueError:
+        # Most likely a corrupt/legacy defined name openpyxl can't parse -
+        # retry from an in-memory, definedNames-stripped copy instead of
+        # giving up (see _strip_defined_names). If this retry also fails,
+        # the original ValueError's message would have been misleading
+        # anyway, so let this second attempt's error surface instead.
+        return openpyxl.load_workbook(_strip_defined_names(path), read_only=True, data_only=True)
+
+
 def load_bible_competition(path: Path | str, sheet_name: str = COMPETITION_SHEET_NAME) -> list[dict]:
     """Read the Competition worksheet directly from the BIBLE workbook.
 
@@ -126,7 +164,7 @@ def load_bible_competition(path: Path | str, sheet_name: str = COMPETITION_SHEET
     if not path.exists():
         raise FileNotFoundError(f"BIBLE file not found at {path}")
 
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    workbook = _open_workbook_readonly(path)
     try:
         if sheet_name not in workbook.sheetnames:
             raise ValueError(
@@ -165,8 +203,8 @@ def _is_online_row(row: dict) -> bool:
         return True
     if normalize(row.get("CITY")) == "online":
         return True
-    retailer = str(row.get("RETAILER") or "").lower()
-    if any(marker in retailer for marker in ONLINE_RETAILER_MARKERS):
+    door_type = str(row.get("DOOR TYPE") or "").lower()
+    if any(marker in door_type for marker in ONLINE_DOOR_TYPE_MARKERS):
         return True
     return False
 
