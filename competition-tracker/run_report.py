@@ -21,6 +21,7 @@ from fss_filter_quality import (
     compute_precision_from_verdicts,
     load_previous_verdicts,
 )
+from online_research import clear_brand_entries, save_cache
 from recent_openings import (
     build_recent_openings_rows,
     load_bible_index,
@@ -40,6 +41,11 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="pdm,amouage,creed,matiere_premiere,mfk,byredo,nishane,ex_nihilo,bdk,initio",
         help="Comma-separated brand slugs to check for recent openings.",
+    )
+    parser.add_argument(
+        "--all-tracked-brands",
+        action="store_true",
+        help="Check every brand in brands.yaml instead of just --brands (overrides --brands).",
     )
     parser.add_argument(
         "--existing-file",
@@ -72,6 +78,32 @@ def parse_args() -> argparse.Namespace:
             "read-only diagnostic on the brand-specific FSS/FSF classifier's own output "
             "(fss_classifier.py) for brands that have it. Never affects recent_openings.xlsx. "
             "Omitted by default."
+        ),
+    )
+    parser.add_argument(
+        "--include-industry-news",
+        action="store_true",
+        help=(
+            "Also consider cached findings from the curated industry/luxury/beauty/travel-retail "
+            "press (news_sources.yaml) - off by default so the ordinary run only relies on official "
+            "brand/mall/landlord sources and the generic press categories it already used."
+        ),
+    )
+    parser.add_argument(
+        "--include-travel-retail",
+        action="store_true",
+        help=(
+            "Also surface travel-retail boutique findings (airport/duty-free) in OTHER OPENINGS - "
+            "off by default; travel-retail is never added to RECENT OPENINGS regardless of this flag."
+        ),
+    )
+    parser.add_argument(
+        "--source-refresh",
+        action="store_true",
+        help=(
+            "Clear data/online_research_cache.json entries for the brands being checked before this "
+            "run, same idea as the old --refresh-online-research - this script can't perform a live "
+            "search itself (see online_research.py), so this just prepares the cache to be refilled."
         ),
     )
     return parser.parse_args()
@@ -162,12 +194,14 @@ def _merge_results_with_fallbacks(
     return ordered
 
 
-def _write_workbook_with_fallback(recent_rows: list[dict], verify_rows: list[dict], output_path: Path) -> tuple[Path, bool]:
+def _write_workbook_with_fallback(
+    recent_rows: list[dict], verify_rows: list[dict], other_rows: list[dict], output_path: Path,
+) -> tuple[Path, bool]:
     try:
-        return write_recent_openings_workbook(recent_rows, verify_rows, output_path), False
+        return write_recent_openings_workbook(recent_rows, verify_rows, other_rows, output_path), False
     except PermissionError:
         fallback_path = output_path.with_name(f"{output_path.stem}.generated{output_path.suffix}")
-        return write_recent_openings_workbook(recent_rows, verify_rows, fallback_path), True
+        return write_recent_openings_workbook(recent_rows, verify_rows, other_rows, fallback_path), True
 
 
 def _run_classifier_diagnostics(brands: list[dict], live_results: list[dict], bible_index: dict, today: date) -> int:
@@ -211,11 +245,26 @@ def _run_classifier_diagnostics(brands: list[dict], live_results: list[dict], bi
 
 def main() -> int:
     args = parse_args()
-    only_slugs = [slug.strip() for slug in args.brands.split(",") if slug.strip()] if args.brands else None
+    only_slugs = None if args.all_tracked_brands else (
+        [slug.strip() for slug in args.brands.split(",") if slug.strip()] if args.brands else None
+    )
     today = date.today()
 
     brands = yaml.safe_load((BASE_DIR / "brands.yaml").read_text(encoding="utf-8"))
-    print(f"Checking {len(brands) if only_slugs is None else len(only_slugs)} brand(s)...")
+    if args.all_tracked_brands:
+        print(f"--all-tracked-brands : checking all {len(brands)} brand(s) in brands.yaml.")
+    else:
+        print(f"Checking {len(brands) if only_slugs is None else len(only_slugs)} brand(s)...")
+
+    if args.source_refresh:
+        selected_names = [
+            brand["name"] for brand in brands if only_slugs is None or brand["slug"] in only_slugs
+        ]
+        cache = load_research_cache()
+        cache = clear_brand_entries(cache, selected_names)
+        save_cache(cache)
+        print(f"--source-refresh : cache cleared for {len(selected_names)} brand(s) - to be refilled.")
+
     live_results = run_all(brands, only_slugs=only_slugs)
 
     bible_index = load_bible_index(Path(args.existing_file))
@@ -229,14 +278,18 @@ def main() -> int:
 
     research_cache = load_research_cache()
     results = _merge_results_with_fallbacks(live_results, brands, research_cache, only_slugs, today)
-    recent_rows, verify_rows, summary = build_recent_openings_rows(
+    recent_rows, verify_rows, other_rows, summary = build_recent_openings_rows(
         results,
         bible_index,
         research_cache,
         recent_days=args.recent_days,
         checked_date=today,
+        include_industry_news=args.include_industry_news,
+        include_travel_retail=args.include_travel_retail,
     )
-    output_path, used_fallback_output = _write_workbook_with_fallback(recent_rows, verify_rows, Path(args.output))
+    output_path, used_fallback_output = _write_workbook_with_fallback(
+        recent_rows, verify_rows, other_rows, Path(args.output),
+    )
 
     if args.no_email:
         print("--no-email accepted; no email step is run in this streamlined workflow.")
@@ -244,11 +297,18 @@ def main() -> int:
         print(f"Requested output was locked; workbook was written to {output_path} instead.")
 
     print(f"Brands checked: {summary.brands_checked}")
+    print(f"Curated news sources configured: {len(yaml.safe_load((BASE_DIR / 'news_sources.yaml').read_text(encoding='utf-8'))['sources'])}")
     print(f"Recent openings found: {summary.recent_openings_found}")
-    print(f"Candidates placed in TO VERIFY: {summary.to_verify_count}")
+    print(f"TO VERIFY candidates: {summary.to_verify_count}")
+    print(f"OTHER OPENINGS found: {summary.other_openings_found} {summary.other_openings_by_classification or ''}")
     print(f"Candidates excluded because they already exist in the BIBLE: {summary.excluded_in_bible}")
-    print(f"Locations excluded as non-FSS/FSF: {summary.excluded_non_fss_fsf}")
     print(f"Candidates excluded as old openings (known date outside the window): {summary.excluded_old_openings}")
+    print(f"Locations excluded as non-permanent/non-mono-brand: {summary.excluded_non_fss_fsf}")
+    if summary.excluded_travel_retail_gated:
+        print(f"Travel-retail findings skipped (pass --include-travel-retail to include): {summary.excluded_travel_retail_gated}")
+    if summary.excluded_industry_news_gated:
+        print(f"Curated industry-news findings skipped (pass --include-industry-news to include): {summary.excluded_industry_news_gated}")
+    print(f"Source links used: {len(summary.source_links_used)}")
     print(f"Output file: {output_path}")
     return 0
 

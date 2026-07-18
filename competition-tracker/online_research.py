@@ -37,7 +37,18 @@ FALLBACK_COLUMNS = [
 
 CONFIDENCE_LEVELS = ("high", "medium", "low")
 STATUS_VALUES = ("CONFIRMED", "PROBABLE", "TO VERIFY")
-CLASSIFICATION_VALUES = ("FSS", "FSF", "counter", "department store", "wholesale", "online", "unclear")
+# Full finding taxonomy (see recent_openings.py's module docstring for how
+# each value is routed): only FSS/FSF can ever reach RECENT OPENINGS;
+# TRAVEL_RETAIL_BOUTIQUE/DEPARTMENT_STORE/CORNER_OR_CONCESSION/
+# SHOP_IN_SHOP/POP_UP/RELOCATION/REOPENING/UNCLEAR are legitimate
+# non-FSS/FSF retail developments reported separately (OTHER OPENINGS);
+# PERFUMERY/MULTIBRAND_RETAILER/ONLINE mean "not the brand's own doing"
+# and are excluded outright, same as before.
+CLASSIFICATION_VALUES = (
+    "FSS", "FSF", "TRAVEL_RETAIL_BOUTIQUE", "DEPARTMENT_STORE",
+    "CORNER_OR_CONCESSION", "SHOP_IN_SHOP", "POP_UP", "PERFUMERY",
+    "MULTIBRAND_RETAILER", "ONLINE", "RELOCATION", "REOPENING", "UNCLEAR",
+)
 
 
 def load_cache(path: Path | str = CACHE_PATH_DEFAULT) -> dict:

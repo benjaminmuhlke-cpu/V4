@@ -26,7 +26,7 @@ n'est pas nécessaire pour les marques actuellement dans `brands.yaml`.
 
 C'est le **seul workflow par défaut**. Il ne fait qu'une chose : repérer
 les ouvertures FSS/FSF récentes et confirmées, absentes de la BIBLE, et les
-mettre dans un classeur Excel à deux onglets prêt à relire.
+mettre dans un classeur Excel à trois onglets prêt à relire.
 
 ```bash
 python run_report.py \
@@ -74,15 +74,26 @@ Chaque exécution :
      différent entre le scraper, le cache et la BIBLE) -> exclue.
    - **date inconnue, mais candidat FSS/FSF plausible et absent de la
      BIBLE** -> `TO VERIFY`.
-   - **pas FSS/FSF** (grand magasin, parfumerie, revendeur multi-marques,
-     corner/concession, boutique éphémère, vente en ligne) -> exclue.
-5. Écrit le classeur (`--output`, par défaut `recent_openings.xlsx`) :
-   - onglet **`RECENT OPENINGS`** : ouvertures confirmées à ajouter à la
-     BIBLE.
-   - onglet **`TO VERIFY`** : candidats plausibles mais non tranchés
-     (date d'ouverture inconnue).
-   - les deux : en-tête figé, filtres automatiques, colonnes dimensionnées,
-     liens `SOURCE URL` cliquables.
+   - **développement retail réel mais non-FSS/FSF** (boutique travel-retail,
+     ouverture en grand magasin, corner/concession, shop-in-shop, pop-up,
+     relocalisation, réouverture, ou un développement non-FSS resté flou)
+     -> `OTHER OPENINGS`, jamais mélangé aux vraies ouvertures FSS/FSF.
+   - **pas l'initiative de la marque du tout** (parfumerie indépendante,
+     revendeur multi-marques, vente en ligne) -> exclue entièrement.
+5. Écrit le classeur (`--output`, par défaut `recent_openings.xlsx`) à
+   **trois onglets** :
+   - **`RECENT OPENINGS`** : ouvertures FSS/FSF confirmées à ajouter à la
+     BIBLE (avec `SECOND SOURCE`/`SECOND SOURCE URL` quand une deuxième
+     source indépendante corrobore la même porte).
+   - **`TO VERIFY`** : candidats FSS/FSF plausibles mais non tranchés (date
+     d'ouverture inconnue, ou source LinkedIn sans annonce d'origine
+     identifiée - voir `_is_unattributed_linkedin_repost`).
+   - **`OTHER OPENINGS`** : développements retail réels mais non-FSS/FSF
+     (travel-retail, grand magasin, corner/concession, shop-in-shop,
+     pop-up, relocalisation, réouverture) - à titre d'information, jamais
+     ajoutés à la BIBLE.
+   - les trois : en-tête figé, filtres automatiques, colonnes
+     dimensionnées, liens `SOURCE URL`/`SECOND SOURCE URL` cliquables.
 6. Affiche en console un résumé (marques vérifiées, lignes par onglet,
    exclusions par catégorie).
 
@@ -123,6 +134,60 @@ Ce flag est **sans effet sur `recent_openings.xlsx`** : le diagnostic lit
 les données déjà calculées par le scraper (`aggregate.py`), il ne modifie
 rien dans le pipeline d'ouvertures récentes. Absent du flag, aucun des deux
 fichiers n'est (re)généré.
+
+## 3. Sources complémentaires et univers concurrentiel élargi
+
+`news_sources.yaml` documente 15 sources presse/LinkedIn curatées
+(FashionNetwork, The Moodie Davitt Report, TRBusiness, Business of Fashion,
+Vogue Business, Cosmetics Business...) qui **complètent, sans jamais
+remplacer**, les sources officielles (site/newsroom/LinkedIn de la marque,
+mall/landlord officiel) - voir l'en-tête du fichier pour le barème de
+priorité à 3 niveaux. Ce fichier est une référence pour alimenter
+`data/online_research_cache.json` à la main (ou via une session Claude Code
+avec accès recherche web, hors de ce script - voir la docstring
+d'`online_research.py`) ; rien ici n'exécute de recherche live.
+
+`brands.yaml` suit désormais 22 marques (les 10 du run par défaut plus
+Diptyque, Maison Margiela, L'Artisan Parfumeur, Penhaligon's, Caron, Serge
+Lutens, Maison Crivelli, Goutal, Memo Paris, Kayali, Floraïku Paris...) et
+`premium_mainstream_collections.yaml` prépare le suivi de lignes de parfum
+"niche" appartenant à des groupes mainstream, volontairement laissé vide
+tant qu'aucune ligne n'est confirmée (voir son en-tête pour le schéma).
+
+Trois options CLI supplémentaires, toutes désactivées par défaut pour que
+le run standard reste conservateur :
+
+```bash
+python run_report.py \
+  --all-tracked-brands \
+  --existing-file "./BIBLE KP & FM Distribution List.xlsx" \
+  --recent-days 60 \
+  --include-industry-news \
+  --include-travel-retail \
+  --output "./recent_openings.xlsx" \
+  --no-email
+```
+
+- **`--all-tracked-brands`** : vérifie les 22 marques de `brands.yaml` au
+  lieu de la liste `--brands` (qui est alors ignorée).
+- **`--include-industry-news`** : prend en compte les entrées du cache dont
+  la source vient d'un des 15 titres de `news_sources.yaml` - absent par
+  défaut, ces entrées sont simplement ignorées (comptées dans "Curated
+  industry-news findings skipped" en console) pour ne jamais gonfler le
+  résultat standard de candidats presse non essentiels.
+- **`--include-travel-retail`** : prend en compte les découvertes
+  classées `TRAVEL_RETAIL_BOUTIQUE` (aéroport/duty-free) dans
+  `OTHER OPENINGS` - jamais dans `RECENT OPENINGS`, quel que soit ce flag.
+- **`--source-refresh`** : vide les entrées du cache pour les marques de ce
+  run avant de le lancer (même logique que l'ancien
+  `--refresh-online-research` - ce script ne peut pas lancer de recherche
+  live lui-même, ça ne fait que préparer le cache à être réalimenté).
+
+Un post LinkedIn n'est promu en `RECENT OPENINGS` que s'il n'est pas un
+simple repost non attribué : une entrée `source_type: linkedin_post` sans
+`original_source_url` retombe toujours en `TO VERIFY`, même datée et
+`CONFIRMED` (le compte officiel de la marque/du mall utilise plutôt
+`official_verified_brand_social_post`, toujours de confiance).
 
 ## Ajouter une marque
 
@@ -220,7 +285,9 @@ appelées par `run_report.py`.
 ## Structure du projet
 
 ```
-brands.yaml                          config (une marque = un objet)
+brands.yaml                          config (une marque = un objet, 22 marques suivies)
+news_sources.yaml + .py              sources presse/LinkedIn curatées complémentaires
+premium_mainstream_collections.yaml  lignes de parfum niche de groupes mainstream (vide, à alimenter)
 region_mapping.py                    pays -> région (EMEA/UK/NOAM/LATAM/CHINA/APAC)
 normalize.py                         normalisation texte (accents/casse/ponctuation)
 brand_aliases.json + .py             alias de marque entre sources
@@ -233,7 +300,7 @@ scrapers/dynamic.py                  widget Stockist (API JSON) + Playwright (de
 aggregate.py                         scrape + filtre FSS + région, par marque
 diff_existing.py                     lecture BIBLE .xlsx (onglet Competition, lecture seule)
 online_research.py                   cache de recherche en ligne curatée (data/online_research_cache.json)
-recent_openings.py                   pipeline ouvertures récentes + écriture du classeur Excel
+recent_openings.py                   pipeline ouvertures récentes (RECENT OPENINGS/TO VERIFY/OTHER OPENINGS) + classeur Excel
 run_report.py                        point d'entrée CLI
 tests/                               tests automatisés (pytest, fixtures synthétiques)
 conftest.py                          ancre pytest à la racine du projet pour les imports

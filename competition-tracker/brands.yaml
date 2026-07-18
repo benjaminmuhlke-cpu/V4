@@ -226,3 +226,68 @@
   notes: >
     Le site officiel UK référence la boutique de Covent Garden. Les ouvertures
     récentes sont gérées via les sources vérifiées plutôt qu'un scraper dédié.
+
+# --- Marques ajoutées pour élargir l'univers concurrentiel suivi (voir
+# COMPETITOR UNIVERSE) - aucun scraper vérifié pour l'instant, traitées en
+# manuel comme Byredo/BDK/Ex Nihilo/Matière Première/Initio ci-dessus :
+# le workflow recent_openings s'appuie sur le cache de recherche curatée
+# (data/online_research_cache.json), pas sur un scraping direct de leur
+# store locator. ---
+
+- name: "Serge Lutens"
+  slug: serge_lutens
+  store_locator_url: "https://sergelutens.com/pages/store-locator-1"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Store locator officiel confirmé (widget Stockist), mais aucun scraper
+    vérifié ici - ouvertures récentes suivies via le cache de recherche.
+
+- name: "Maison Crivelli"
+  slug: maison_crivelli
+  store_locator_url: "https://maisoncrivelli.com/en/boutiques/"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Haute parfumerie parisienne (fondateur Thibaud Crivelli) - distribution
+    mêlant boutiques en propre et grands magasins (Galeries Lafayette,
+    Harrods, Selfridges, Rinascente...). Ouvertures récentes suivies via le
+    cache de recherche plutôt qu'un scraper.
+
+- name: "Goutal"
+  slug: goutal
+  store_locator_url: "https://www.goutalparis.com/en/pages/storelocator"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Anciennement Annick Goutal - boutique historique Saint-Sulpice à Paris.
+    Store locator officiel confirmé ; aucun scraper vérifié ici.
+
+- name: "Memo Paris"
+  slug: memo
+  store_locator_url: "https://www.memoparis.com/pages/find-us"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Store locator officiel confirmé (EMEA/APAC/Amériques) ; aucun scraper
+    vérifié ici - ouvertures récentes suivies via le cache de recherche.
+
+- name: "Kayali"
+  slug: kayali
+  store_locator_url: "https://us.kayali.com/"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Distribution majoritairement via Sephora/Ulta (wholesale) - pas de
+    store locator dédié aux boutiques en propre identifié ; toute FSS/FSF
+    doit être confirmée à la main avant tout ajout à la BIBLE.
+
+- name: "Floraïku Paris"
+  slug: floraiku
+  store_locator_url: "https://www.floraiku.com/pages/our-stores"
+  scraper_type: manual
+  confidence: manuelle
+  notes: >
+    Boutique parisienne confirmée (28 rue Bayard, 75008 Paris) ; aucun
+    scraper vérifié ici - ouvertures récentes suivies via le cache de
+    recherche.

@@ -1,3 +1,48 @@
+"""Etape (recent openings): surfaces confirmed newly-opened FSS/FSF doors so
+they can be added to the BIBLE, using data/online_research_cache.json as the
+evidence source (see online_research.py's module docstring for why that's a
+curated cache rather than a live search) - now broadened to also draw on
+curated industry/luxury/beauty/travel-retail press and LinkedIn (see
+news_sources.yaml) alongside official brand/mall/landlord sources.
+
+Two independent discovery routes feed the same check - neither gates the
+other, and a finding never has to come from both:
+
+  A. store-locator candidate -> recent-opening evidence: the scraper already
+     returned this door (results[i]["stores"]) and online research
+     separately dates its opening.
+  B. recent-opening announcement -> official locator + BIBLE check: a dated,
+     credible cache entry, whether or not the scraper's own coverage
+     happened to include the same door (a fixed seed list, a paginated
+     locator, a blocked request, or a city-name mismatch between sources can
+     all cause the scraper to miss a real door - that is not a reason to
+     miss the opening too).
+
+Every cache entry gets classified into exactly one bucket:
+
+  - RECENT OPENINGS: FSS/FSF, CONFIRMED/PROBABLE, dated within the recent
+    window, not already in the BIBLE, from a recognized source, and (if the
+    only evidence is an unattributed LinkedIn repost) still routed to TO
+    VERIFY instead - see _is_unattributed_linkedin_repost.
+  - TO VERIFY: FSS/FSF but missing what RECENT OPENINGS requires (usually a
+    dated source, or - for LinkedIn - an identified original source).
+  - OTHER OPENINGS: a real, non-FSS/FSF retail development worth knowing
+    about (travel-retail boutique, department-store opening, corner/
+    concession, shop-in-shop, pop-up, relocation, reopening, or an
+    otherwise-unclear non-FSS development) - reported separately, never
+    mixed into RECENT OPENINGS.
+  - excluded entirely: already in the BIBLE; a known opening date outside
+    the recent window (a resolved fact, not an open question - never left
+    in TO VERIFY); or a listing that isn't the brand's own doing at all
+    (PERFUMERY / MULTIBRAND_RETAILER / ONLINE - a reseller carrying the
+    brand, not the brand opening something).
+
+--include-industry-news and --include-travel-retail (see run_report.py)
+gate the newly-added curated press sources and travel-retail findings
+respectively, off by default so the ordinary run stays conservative - see
+CURATED_NEWS_SOURCE_TYPES / the TRAVEL_RETAIL_BOUTIQUE check below.
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -11,13 +56,49 @@ from openpyxl.utils import get_column_letter
 
 from brand_aliases import brand_match_key
 from diff_existing import _door_key, build_bible_index, filter_bible_rows, load_bible_competition
+from news_sources import source_priorities as _load_news_source_priorities
 from normalize import normalize
 from online_research import CACHE_PATH_DEFAULT, load_cache
 
 RECENT_OPENINGS_SHEET = "RECENT OPENINGS"
 TO_VERIFY_SHEET = "TO VERIFY"
+OTHER_OPENINGS_SHEET = "OTHER OPENINGS"
 
 RECENT_OPENINGS_COLUMNS = [
+    "BRAND",
+    "REGION",
+    "COUNTRY",
+    "CITY",
+    "DOOR NAME",
+    "FULL ADDRESS",
+    "DOOR TYPE",
+    "OPENING DATE",
+    "SOURCE",
+    "SOURCE URL",
+    "SECOND SOURCE",
+    "SECOND SOURCE URL",
+    "DATE CHECKED",
+    "NOTES",
+]
+
+TO_VERIFY_COLUMNS = [
+    "BRAND",
+    "REGION",
+    "COUNTRY",
+    "CITY",
+    "DOOR NAME",
+    "FULL ADDRESS",
+    "POSSIBLE DOOR TYPE",
+    "REASON TO VERIFY",
+    "SOURCE",
+    "SOURCE URL",
+    "SECOND SOURCE",
+    "SECOND SOURCE URL",
+    "DATE CHECKED",
+    "NOTES",
+]
+
+OTHER_OPENINGS_COLUMNS = [
     "BRAND",
     "REGION",
     "COUNTRY",
@@ -32,35 +113,42 @@ RECENT_OPENINGS_COLUMNS = [
     "NOTES",
 ]
 
-TO_VERIFY_COLUMNS = [
-    "BRAND",
-    "REGION",
-    "COUNTRY",
-    "CITY",
-    "DOOR NAME",
-    "FULL ADDRESS",
-    "REASON TO VERIFY",
-    "SOURCE",
-    "SOURCE URL",
-    "DATE CHECKED",
-    "NOTES",
-]
-
-RECENT_SOURCE_TYPES = {
+# Simple, deterministic 3-tier SOURCE_PRIORITY (see news_sources.yaml's
+# header for the exact tier definitions) - tier 1 for anything official
+# (brand or mall/landlord), tier 2-3 merged in from news_sources.yaml so
+# that file stays the single source of truth for the curated press tiers.
+BASE_SOURCE_PRIORITY = {
     "official_brand_website": 1,
     "official_brand_newsroom": 1,
     "official_brand_store_page": 1,
-    "official_verified_brand_social_post": 2,
-    "official_mall_landlord_directory": 3,
-    "official_mall_landlord_website": 3,
-    "official_airport_website": 3,
-    "official_shopping_centre_website": 3,
-    "industry_publication": 4,
-    "beauty_publication": 4,
-    "luxury_publication": 4,
-    "retail_publication": 4,
-    "travel_retail_publication": 4,
-    "local_publication": 4,
+    "official_verified_brand_social_post": 1,  # the brand's own official LinkedIn
+    "official_mall_landlord_directory": 1,
+    "official_mall_landlord_website": 1,
+    "official_airport_website": 1,
+    "official_shopping_centre_website": 1,
+    "industry_publication": 2,
+    "beauty_publication": 2,
+    "luxury_publication": 2,
+    "retail_publication": 2,
+    "travel_retail_publication": 2,
+    "local_publication": 3,
+    # A LinkedIn post that is NOT the brand/mall's own official page (an
+    # unverified account resharing news) - see _is_unattributed_linkedin_repost.
+    "linkedin_post": 2,
+}
+RECENT_SOURCE_TYPES = {**BASE_SOURCE_PRIORITY, **_load_news_source_priorities()}
+
+# source_type slugs sourced from news_sources.yaml (FashionNetwork, Moodie
+# Davitt, TRBusiness, ...) - only considered at all when --include-industry-
+# news is passed, keeping the default run conservative (see module docstring).
+CURATED_NEWS_SOURCE_TYPES = frozenset(_load_news_source_priorities().keys())
+
+# Legitimate non-FSS/FSF retail developments worth reporting separately
+# (OTHER OPENINGS) - as opposed to PERFUMERY/MULTIBRAND_RETAILER/ONLINE,
+# which mean "not the brand's own doing" and are excluded outright.
+OTHER_OPENING_CLASSIFICATIONS = {
+    "TRAVEL_RETAIL_BOUTIQUE", "DEPARTMENT_STORE", "CORNER_OR_CONCESSION",
+    "SHOP_IN_SHOP", "POP_UP", "RELOCATION", "REOPENING", "UNCLEAR",
 }
 
 ALLOWED_DOOR_TYPES = {"FSS", "FSF"}
@@ -77,8 +165,13 @@ class PipelineSummary:
     excluded_non_fss_fsf: int
     excluded_in_bible: int
     excluded_old_openings: int = 0
+    other_openings_found: int = 0
+    excluded_travel_retail_gated: int = 0
+    excluded_industry_news_gated: int = 0
     recent_openings_by_brand: dict[str, int] = field(default_factory=dict)
     to_verify_by_brand: dict[str, int] = field(default_factory=dict)
+    other_openings_by_brand: dict[str, int] = field(default_factory=dict)
+    other_openings_by_classification: dict[str, int] = field(default_factory=dict)
     source_links_used: tuple[str, ...] = ()
 
 
@@ -100,6 +193,15 @@ def _is_within_recent_days(opening_date: date | None, checked_date: date, recent
 
 def _source_priority(entry: dict) -> int:
     return RECENT_SOURCE_TYPES.get(entry.get("source_type"), 99)
+
+
+def _is_unattributed_linkedin_repost(entry: dict) -> bool:
+    """A LinkedIn post that isn't the brand/mall's own official page (see
+    "official_verified_brand_social_post" above, which IS official) and
+    doesn't preserve the original announcement it's reposting - never
+    promoted to RECENT OPENINGS on its own, always routed to TO VERIFY
+    instead, regardless of how confident/dated it otherwise looks."""
+    return entry.get("source_type") == "linkedin_post" and not entry.get("original_source_url")
 
 
 def _store_lookup_key(brand: str, store: dict) -> tuple[str, str, str, str]:
@@ -169,6 +271,20 @@ def _recent_sort_key(entry: dict) -> tuple[int, int, str]:
     )
 
 
+def _second_source_entry(matched_entries: list[dict], primary: dict) -> dict | None:
+    """The next-best entry with a genuinely different URL than the primary
+    source - simple deterministic "do we have independent corroboration"
+    signal, no scoring formula (see EVIDENCE RULES' "preferred confirmation"
+    - this is informational, never a hard requirement)."""
+    primary_url = primary.get("url")
+    for entry in sorted(matched_entries, key=_recent_sort_key):
+        if entry is primary:
+            continue
+        if entry.get("url") and entry.get("url") != primary_url:
+            return entry
+    return None
+
+
 def load_bible_index(existing_file: Path | str) -> dict:
     rows = load_bible_competition(existing_file)
     filtered_rows, _ = filter_bible_rows(rows)
@@ -183,10 +299,11 @@ def _format_source_label(entry: dict) -> str:
     return entry.get("source_title") or entry.get("source_domain") or "Source"
 
 
-def _recent_row(brand_name: str, store: dict, entry: dict, checked_date: date) -> dict:
+def _recent_row(brand_name: str, store: dict, entry: dict, matched_entries: list[dict], checked_date: date) -> dict:
     notes = entry.get("verification_notes") or ""
     if entry.get("status") == "PROBABLE":
         notes = "PROBABLE - " + notes if notes else "PROBABLE"
+    second = _second_source_entry(matched_entries, entry)
     return {
         "BRAND": brand_name,
         "REGION": store.get("region") or entry.get("region"),
@@ -198,12 +315,18 @@ def _recent_row(brand_name: str, store: dict, entry: dict, checked_date: date) -
         "OPENING DATE": entry.get("source_date"),
         "SOURCE": _format_source_label(entry),
         "SOURCE URL": entry.get("url"),
+        "SECOND SOURCE": _format_source_label(second) if second else "",
+        "SECOND SOURCE URL": second.get("url") if second else "",
         "DATE CHECKED": checked_date.isoformat(),
         "NOTES": notes,
     }
 
 
-def _verify_row(brand_name: str, store: dict, entry: dict, checked_date: date, reason: str) -> dict:
+def _verify_row(
+    brand_name: str, store: dict, entry: dict, matched_entries: list[dict],
+    checked_date: date, reason: str, possible_door_type: str | None,
+) -> dict:
+    second = _second_source_entry(matched_entries, entry)
     return {
         "BRAND": brand_name,
         "REGION": store.get("region") or entry.get("region"),
@@ -211,7 +334,27 @@ def _verify_row(brand_name: str, store: dict, entry: dict, checked_date: date, r
         "CITY": store.get("city") or entry.get("city"),
         "DOOR NAME": store.get("name") or entry.get("store_name"),
         "FULL ADDRESS": store.get("address") or entry.get("address"),
+        "POSSIBLE DOOR TYPE": possible_door_type,
         "REASON TO VERIFY": reason,
+        "SOURCE": _format_source_label(entry),
+        "SOURCE URL": entry.get("url"),
+        "SECOND SOURCE": _format_source_label(second) if second else "",
+        "SECOND SOURCE URL": second.get("url") if second else "",
+        "DATE CHECKED": checked_date.isoformat(),
+        "NOTES": entry.get("verification_notes") or entry.get("evidence") or "",
+    }
+
+
+def _other_row(brand_name: str, store: dict, entry: dict, checked_date: date) -> dict:
+    return {
+        "BRAND": brand_name,
+        "REGION": store.get("region") or entry.get("region"),
+        "COUNTRY": store.get("country") or entry.get("country"),
+        "CITY": store.get("city") or entry.get("city"),
+        "DOOR NAME": store.get("name") or entry.get("store_name"),
+        "FULL ADDRESS": store.get("address") or entry.get("address"),
+        "DOOR TYPE": entry.get("store_classification"),
+        "OPENING DATE": entry.get("source_date"),
         "SOURCE": _format_source_label(entry),
         "SOURCE URL": entry.get("url"),
         "DATE CHECKED": checked_date.isoformat(),
@@ -257,21 +400,43 @@ def build_recent_openings_rows(
     research_cache: dict,
     recent_days: int = 60,
     checked_date: date | None = None,
-) -> tuple[list[dict], list[dict], PipelineSummary]:
+    include_industry_news: bool = False,
+    include_travel_retail: bool = False,
+) -> tuple[list[dict], list[dict], list[dict], PipelineSummary]:
     checked_date = checked_date or date.today()
     recent_rows: list[dict] = []
     verify_rows: list[dict] = []
+    other_rows: list[dict] = []
     recent_row_keys: set[tuple[str, ...]] = set()
     verify_row_keys: set[tuple[str, ...]] = set()
+    other_row_keys: set[tuple[str, ...]] = set()
     recent_by_brand: defaultdict[str, int] = defaultdict(int)
     verify_by_brand: defaultdict[str, int] = defaultdict(int)
+    other_by_brand: defaultdict[str, int] = defaultdict(int)
+    other_by_classification: defaultdict[str, int] = defaultdict(int)
     source_links_used: set[str] = set()
     excluded_non_fss_fsf = 0
     excluded_in_bible = 0
     excluded_old_openings = 0
+    excluded_travel_retail_gated = 0
+    excluded_industry_news_gated = 0
 
     selected_brands = _selected_brand_map(results)
-    entries = [entry for entry in research_cache.get("entries", []) if brand_match_key(entry.get("brand")) in selected_brands]
+    candidate_entries = [
+        entry for entry in research_cache.get("entries", [])
+        if brand_match_key(entry.get("brand")) in selected_brands
+    ]
+
+    entries = []
+    for entry in candidate_entries:
+        if entry.get("store_classification") == "TRAVEL_RETAIL_BOUTIQUE" and not include_travel_retail:
+            excluded_travel_retail_gated += 1
+            continue
+        if entry.get("source_type") in CURATED_NEWS_SOURCE_TYPES and not include_industry_news:
+            excluded_industry_news_gated += 1
+            continue
+        entries.append(entry)
+
     processed_candidates: set[tuple[str, str, str, str]] = set()
     counted_bible_exclusions: set[tuple[str, str, str, str]] = set()
 
@@ -302,19 +467,20 @@ def build_recent_openings_rows(
             processed_candidates.add(candidate_key)
             return
 
-        candidate_entries = sorted(matched_entries, key=_recent_sort_key)
+        sorted_entries = sorted(matched_entries, key=_recent_sort_key)
         recent_entry = next(
             (
-                entry for entry in candidate_entries
+                entry for entry in sorted_entries
                 if entry.get("store_classification") in ALLOWED_DOOR_TYPES
                 and _source_priority(entry) < 99
                 and entry.get("status") in RECENT_OPENING_STATUSES
+                and not _is_unattributed_linkedin_repost(entry)
                 and _is_within_recent_days(_parse_source_date(entry.get("source_date")), checked_date, recent_days)
             ),
             None,
         )
         if recent_entry is not None:
-            row = _recent_row(brand_name, store, recent_entry, checked_date)
+            row = _recent_row(brand_name, store, recent_entry, matched_entries, checked_date)
             row_key = _row_key(row)
             if row_key not in recent_row_keys:
                 recent_rows.append(row)
@@ -330,33 +496,65 @@ def build_recent_openings_rows(
             return
 
         classification = best_entry.get("store_classification")
-        if classification not in ALLOWED_DOOR_TYPES:
-            excluded_non_fss_fsf += 1
+
+        if classification in ALLOWED_DOOR_TYPES:
+            if _is_unattributed_linkedin_repost(best_entry):
+                row = _verify_row(
+                    brand_name, store, best_entry, matched_entries, checked_date,
+                    "LinkedIn post without an identified original source", classification,
+                )
+                row_key = _row_key(row)
+                if row_key not in verify_row_keys:
+                    verify_rows.append(row)
+                    verify_row_keys.add(row_key)
+                    verify_by_brand[brand_name] += 1
+                    if row["SOURCE URL"]:
+                        source_links_used.add(row["SOURCE URL"])
+                processed_candidates.add(candidate_key)
+                return
+
+            # TO VERIFY is only for candidates whose opening date is still
+            # unknown. A known date that didn't qualify above (outside the
+            # recent window, or reported by a source too weak to promote)
+            # is a resolved fact, not an open question - it must never sit
+            # in TO VERIFY. It simply isn't a recent opening to report.
+            if any(_parse_source_date(e.get("source_date")) is not None for e in matched_entries):
+                excluded_old_openings += 1
+                processed_candidates.add(candidate_key)
+                return
+
+            reason = _candidate_reason(best_entry)
+            if reason is None:
+                return
+
+            row = _verify_row(brand_name, store, best_entry, matched_entries, checked_date, reason, classification)
+            row_key = _row_key(row)
+            if row_key not in verify_row_keys:
+                verify_rows.append(row)
+                verify_row_keys.add(row_key)
+                verify_by_brand[brand_name] += 1
+                if row["SOURCE URL"]:
+                    source_links_used.add(row["SOURCE URL"])
             processed_candidates.add(candidate_key)
             return
 
-        # TO VERIFY is only for candidates whose opening date is still
-        # unknown. A known date that didn't qualify above (outside the
-        # recent window, or reported by a source too weak to promote) is a
-        # resolved fact, not an open question - it must never sit in TO
-        # VERIFY. It simply isn't a recent opening to report.
-        if any(_parse_source_date(entry.get("source_date")) is not None for entry in matched_entries):
-            excluded_old_openings += 1
+        if classification in OTHER_OPENING_CLASSIFICATIONS:
+            row = _other_row(brand_name, store, best_entry, checked_date)
+            row_key = _row_key(row)
+            if row_key not in other_row_keys:
+                other_rows.append(row)
+                other_row_keys.add(row_key)
+                other_by_brand[brand_name] += 1
+                other_by_classification[classification] += 1
+                if row["SOURCE URL"]:
+                    source_links_used.add(row["SOURCE URL"])
             processed_candidates.add(candidate_key)
             return
 
-        reason = _candidate_reason(best_entry)
-        if reason is None:
-            return
-
-        row = _verify_row(brand_name, store, best_entry, checked_date, reason)
-        row_key = _row_key(row)
-        if row_key not in verify_row_keys:
-            verify_rows.append(row)
-            verify_row_keys.add(row_key)
-            verify_by_brand[brand_name] += 1
-            if row["SOURCE URL"]:
-                source_links_used.add(row["SOURCE URL"])
+        # PERFUMERY / MULTIBRAND_RETAILER / ONLINE / unrecognized - not the
+        # brand's own doing at all (a reseller carrying the brand), pure
+        # noise rather than any kind of opening to report.
+        excluded_non_fss_fsf += 1
         processed_candidates.add(candidate_key)
 
     for brand_result in results:
@@ -385,11 +583,16 @@ def build_recent_openings_rows(
         excluded_non_fss_fsf=excluded_non_fss_fsf,
         excluded_in_bible=excluded_in_bible,
         excluded_old_openings=excluded_old_openings,
+        other_openings_found=len(other_rows),
+        excluded_travel_retail_gated=excluded_travel_retail_gated,
+        excluded_industry_news_gated=excluded_industry_news_gated,
         recent_openings_by_brand=dict(sorted(recent_by_brand.items())),
         to_verify_by_brand=dict(sorted(verify_by_brand.items())),
+        other_openings_by_brand=dict(sorted(other_by_brand.items())),
+        other_openings_by_classification=dict(sorted(other_by_classification.items())),
         source_links_used=tuple(sorted(source_links_used)),
     )
-    return recent_rows, verify_rows, summary
+    return recent_rows, verify_rows, other_rows, summary
 
 
 def _write_sheet(workbook: openpyxl.Workbook, title: str, columns: list[str], rows: list[dict]) -> None:
@@ -412,6 +615,14 @@ def _write_sheet(workbook: openpyxl.Workbook, title: str, columns: list[str], ro
                 cell.hyperlink = str(cell.value)
                 cell.style = "Hyperlink"
 
+    if "SECOND SOURCE URL" in columns:
+        hyperlink_col = columns.index("SECOND SOURCE URL") + 1
+        for row_index in range(2, worksheet.max_row + 1):
+            cell = worksheet.cell(row=row_index, column=hyperlink_col)
+            if cell.value:
+                cell.hyperlink = str(cell.value)
+                cell.style = "Hyperlink"
+
     for col_index, column in enumerate(columns, start=1):
         max_length = len(column)
         for row_index in range(2, worksheet.max_row + 1):
@@ -422,7 +633,9 @@ def _write_sheet(workbook: openpyxl.Workbook, title: str, columns: list[str], ro
         worksheet.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 60)
 
 
-def write_recent_openings_workbook(recent_rows: list[dict], verify_rows: list[dict], output_path: Path | str) -> Path:
+def write_recent_openings_workbook(
+    recent_rows: list[dict], verify_rows: list[dict], other_rows: list[dict], output_path: Path | str,
+) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -430,6 +643,7 @@ def write_recent_openings_workbook(recent_rows: list[dict], verify_rows: list[di
     workbook.remove(workbook.active)
     _write_sheet(workbook, RECENT_OPENINGS_SHEET, RECENT_OPENINGS_COLUMNS, recent_rows)
     _write_sheet(workbook, TO_VERIFY_SHEET, TO_VERIFY_COLUMNS, verify_rows)
+    _write_sheet(workbook, OTHER_OPENINGS_SHEET, OTHER_OPENINGS_COLUMNS, other_rows)
     workbook.save(output_path)
     workbook.close()
     return output_path

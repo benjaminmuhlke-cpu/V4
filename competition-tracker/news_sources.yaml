@@ -1,0 +1,212 @@
+# Curated industry/luxury/beauty/travel-retail news sources for the
+# recent-openings discovery workflow (see NEW OBJECTIVE in the project's
+# working instructions). These complement, never replace, official brand
+# sources - see SOURCE_CATEGORIES / SOURCE_PRIORITY below.
+#
+# This file is a reference list only: nothing in this repository crawls
+# these sites live (no search API key, no scraper for each site - see
+# online_research.py's module docstring for why research is a curated
+# cache, not a live search). It documents WHERE a human (or a Claude Code
+# session with web search access, done out-of-band) should look when
+# filling data/online_research_cache.json, and gives recent_openings.py a
+# simple, deterministic SOURCE_PRIORITY to rank cached findings by.
+#
+# SOURCE_CATEGORIES: OFFICIAL_BRAND | OFFICIAL_MALL_OR_LANDLORD |
+#   INDUSTRY_NEWS | LUXURY_NEWS | BEAUTY_NEWS | TRAVEL_RETAIL_NEWS |
+#   LINKEDIN | OTHER
+#
+# SOURCE_PRIORITY (simple deterministic tiers, no scoring formula):
+#   1 = official brand website/newsroom/LinkedIn/store locator, official
+#       mall or landlord source
+#   2 = FashionNetwork, The Business of Fashion, Vogue Business, The Moodie
+#       Davitt Report, TRBusiness, Global Travel Retail Magazine, Global
+#       Cosmetics News, Cosmetics Business, Global Cosmetics Industry,
+#       Retail in Asia
+#   3 = Journal du Luxe, CPP-LUXURY.COM, The Fragrance Foundation, Retail
+#       Beauty, Retail Scope
+
+sources:
+  - name: "FashionNetwork"
+    website: "https://www.fashionnetwork.com"
+    linkedin: "https://www.linkedin.com/company/fashionnetwork-com/"
+    category: INDUSTRY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:fashionnetwork.com web search"
+    notes: >
+      Broad fashion/retail trade press, frequently covers store openings
+      and brand expansion news across regions.
+
+  - name: "The Moodie Davitt Report"
+    website: "https://moodiedavittreport.com"
+    linkedin: "https://www.linkedin.com/company/the-moodie-davitt-report/"
+    category: TRAVEL_RETAIL_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: true
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:moodiedavittreport.com web search"
+    notes: >
+      The reference trade title for travel retail/duty-free - airport and
+      downtown duty-free boutique openings, not FSS/FSF by the BIBLE
+      definition unless explicitly a free-standing mono-brand boutique.
+
+  - name: "TRBusiness"
+    website: "https://www.trbusiness.com"
+    linkedin: "https://www.linkedin.com/company/trbusiness/"
+    category: TRAVEL_RETAIL_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: true
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:trbusiness.com web search"
+    notes: "Travel Retail Business - duty-free/airport retail trade press."
+
+  - name: "Global Travel Retail Magazine"
+    website: "https://www.globaltravelretailmagazine.com"
+    linkedin: null
+    category: TRAVEL_RETAIL_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: true
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "Travel retail trade press."
+
+  - name: "The Business of Fashion"
+    website: "https://www.businessoffashion.com"
+    linkedin: "https://www.linkedin.com/company/the-business-of-fashion/"
+    category: LUXURY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:businessoffashion.com web search"
+    notes: "Luxury/fashion business press, some paywalled content."
+
+  - name: "Journal du Luxe"
+    website: "https://www.journalduluxe.fr"
+    linkedin: "https://www.linkedin.com/company/journal-du-luxe/"
+    category: LUXURY_NEWS
+    priority: 3
+    geographic_focus: "France / Europe"
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "French-language luxury industry press."
+
+  - name: "Global Cosmetics News"
+    website: "https://www.globalcosmeticsnews.com"
+    linkedin: "https://www.linkedin.com/company/global-cosmetics-news/"
+    category: BEAUTY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:globalcosmeticsnews.com web search"
+    notes: "Beauty/cosmetics trade press."
+
+  - name: "CPP-LUXURY.COM"
+    website: "https://www.cpp-luxury.com"
+    linkedin: "https://www.linkedin.com/company/cpp-luxury/"
+    category: LUXURY_NEWS
+    priority: 3
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "Luxury industry news site."
+
+  - name: "Global Cosmetics Industry"
+    website: "https://www.gcimagazine.com"
+    linkedin: "https://www.linkedin.com/company/global-cosmetic-industry/"
+    category: BEAUTY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:gcimagazine.com web search"
+    notes: "Also known as GCI Magazine."
+
+  - name: "The Fragrance Foundation"
+    website: "https://www.fragrance.org"
+    linkedin: "https://www.linkedin.com/company/the-fragrance-foundation/"
+    category: BEAUTY_NEWS
+    priority: 3
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: false
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "Fragrance-industry trade body; news mostly awards/events, occasional brand news."
+
+  - name: "Cosmetics Business"
+    website: "https://www.cosmeticsbusiness.com"
+    linkedin: "https://www.linkedin.com/company/cosmetics-business/"
+    category: BEAUTY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:cosmeticsbusiness.com web search"
+    notes: "Beauty/cosmetics trade press (UK-based, global coverage)."
+
+  - name: "Retail Beauty"
+    website: "https://www.retail-beauty.com"
+    linkedin: null
+    category: BEAUTY_NEWS
+    priority: 3
+    geographic_focus: "France / Europe"
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "French-language beauty retail trade press."
+
+  - name: "Retail Scope"
+    website: "https://www.retail-scope.com"
+    linkedin: "https://www.linkedin.com/company/retail-scope/"
+    category: BEAUTY_NEWS
+    priority: 3
+    geographic_focus: "France / Europe"
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + web search"
+    notes: "Beauty/personal-care retail intelligence, France-focused."
+
+  - name: "Retail in Asia"
+    website: "https://retailinasia.com"
+    linkedin: "https://www.linkedin.com/company/retail-in-asia/"
+    category: INDUSTRY_NEWS
+    priority: 2
+    geographic_focus: APAC
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:retailinasia.com web search"
+    notes: "APAC-focused retail trade press - useful for China/APAC store openings."
+
+  - name: "Vogue Business"
+    website: "https://www.voguebusiness.com"
+    linkedin: "https://www.linkedin.com/company/vogue-business/"
+    category: LUXURY_NEWS
+    priority: 2
+    geographic_focus: global
+    covers_travel_retail: false
+    covers_luxury: true
+    covers_beauty_fragrance: true
+    search_method: "site search + site:voguebusiness.com web search"
+    notes: "Luxury/fashion business press, some paywalled content."

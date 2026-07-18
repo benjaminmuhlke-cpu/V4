@@ -1,0 +1,31 @@
+# Premium/niche-style fragrance collections owned by mainstream groups and
+# houses (e.g. a couture maison's dedicated "exclusive"/"privée" fragrance
+# line, sold through its own boutiques rather than mass distribution).
+#
+# Deliberately left empty of speculative entries: no full list is hardcoded
+# here without evidence, per the project's working instructions ("Do not
+# hardcode a speculative full list without evidence"). Add a collection
+# only once its existence, parent company and official sources are
+# confirmed - each entry follows the schema below.
+#
+# Schema per entry:
+#   name:               collection name (exactly as the brand calls it)
+#   parent_company:      the group/house that owns it
+#   official_website:    the collection's own site, or the parent brand's
+#                        page for it if it has no dedicated site
+#   official_linkedin:    LinkedIn company page if one exists specifically
+#                        for the collection (else null)
+#   tracking_status:     not_tracked | candidate | tracked
+#   notes:               why it's here / what's still unconfirmed
+#
+# Example (commented out - not an active entry):
+# - name: "Example Privée Collection"
+#   parent_company: "Example Group"
+#   official_website: "https://example.com/privee-collection"
+#   official_linkedin: null
+#   tracking_status: candidate
+#   notes: >
+#     Placeholder showing the schema - replace with a real, verified
+#     collection before uncommenting.
+
+collections: []

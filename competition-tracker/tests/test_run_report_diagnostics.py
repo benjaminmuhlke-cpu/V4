@@ -59,9 +59,10 @@ def _patch_common(monkeypatch, tmp_path, include_diagnostics=False):
     monkeypatch.setattr(run_report, "load_research_cache", lambda: {"entries": []})
     written = {}
 
-    def fake_write_workbook(recent_rows, verify_rows, path):
+    def fake_write_workbook(recent_rows, verify_rows, other_rows, path):
         written["recent_rows"] = recent_rows
         written["verify_rows"] = verify_rows
+        written["other_rows"] = other_rows
         return Path(path)
 
     monkeypatch.setattr(run_report, "write_recent_openings_workbook", fake_write_workbook)

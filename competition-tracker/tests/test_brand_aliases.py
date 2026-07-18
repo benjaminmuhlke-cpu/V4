@@ -21,6 +21,31 @@ def test_alias_and_canonical_name_share_the_same_match_key():
     assert brand_match_key("Initio") == brand_match_key("Initio Parfums Privés")
 
 
+def test_expanded_competitor_universe_aliases_resolve_to_canonical_name():
+    assert canonical_brand_name("Parfums Caron") == "Caron"
+    assert canonical_brand_name("Ex Nihilo Paris") == "Ex Nihilo"
+    assert canonical_brand_name("Memo") == "Memo Paris"
+    assert canonical_brand_name("L Artisan Parfumeur") == "L'Artisan Parfumeur"
+    assert canonical_brand_name("Floraiku") == "Floraïku Paris"
+    assert canonical_brand_name("Floraïku") == "Floraïku Paris"
+    assert canonical_brand_name("Crivelli") == "Maison Crivelli"
+    assert canonical_brand_name("Goutal Paris") == "Goutal"
+    assert canonical_brand_name("Annick Goutal") == "Goutal"
+
+
+def test_every_tracked_brand_in_brands_yaml_resolves_to_itself():
+    """Every brand.yaml entry must be resolvable by its own exact name -
+    a canonical name with no alias entry should just pass through."""
+    import yaml
+    from pathlib import Path
+
+    brands = yaml.safe_load((Path(__file__).parent.parent / "brands.yaml").read_text(encoding="utf-8"))
+    assert len(brands) >= 22
+    for brand in brands:
+        assert canonical_brand_name(brand["name"]) == brand["name"]
+        assert brand_match_key(brand["name"]) == brand_match_key(brand["name"])
+
+
 def test_unknown_brand_passes_through_unchanged():
     assert canonical_brand_name("Diptyque") == "Diptyque"
     assert canonical_brand_name("Some Unlisted Brand") == "Some Unlisted Brand"
