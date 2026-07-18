@@ -1,13 +1,14 @@
 # Veille concurrentielle FSS/FSF
 
-Outil personnel pour suivre le nombre de boutiques en propre (FSS/FSF -
-Free Standing Store/Flagship, **pas** les corners multi-marques ni les
-distributeurs wholesale) des marques de parfumerie de niche concurrentes,
-classées par région (EMEA, UK, NOAM, LATAM, CHINA, APAC).
+Outil personnel pour repérer les **ouvertures récentes** de boutiques en
+propre (FSS/FSF - Free Standing Store/Flagship, **pas** les corners
+multi-marques ni les distributeurs wholesale) chez les marques de
+parfumerie de niche concurrentes, et les recouper avec la BIBLE existante
+avant de les y ajouter.
 
 Esprit du projet : le plus simple qui marche. Stdlib d'abord, un fichier de
-config (`brands.yaml`), un `if/elif` par type de scraper plutôt qu'un
-système de plugins, pas de base de données tant qu'on n'en a pas besoin.
+config (`brands.yaml`), pas de base de données, pas d'abstraction au-delà
+de ce qui est réellement utilisé.
 
 ## Installer
 
@@ -15,217 +16,113 @@ système de plugins, pas de base de données tant qu'on n'en a pas besoin.
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# éditer .env : identifiants Gmail (mot de passe d'application, pas le
-# mot de passe principal), destinataire du rapport, etc.
 ```
 
 `playwright` est dans `requirements.txt` mais n'est utilisé que si une
 future marque `js_widget` n'expose aucune API JSON (dernier recours). Il
-n'est pas nécessaire pour les marques actuellement dans `brands.yaml` - pas
-la peine de lancer `playwright install chromium` avant d'en avoir besoin.
+n'est pas nécessaire pour les marques actuellement dans `brands.yaml`.
 
-## Lancer
+## 1. Workflow normal : ouvertures récentes
+
+C'est le **seul workflow par défaut**. Il ne fait qu'une chose : repérer
+les ouvertures FSS/FSF récentes et confirmées, absentes de la BIBLE, et les
+mettre dans un classeur Excel à deux onglets prêt à relire.
 
 ```bash
-python run_report.py                        # toutes les marques
-python run_report.py --brands mfk,diptyque  # seulement certaines (utile pour tester)
-
-# Recoupement avec le vrai fichier de suivi + sans envoi d'email (test/dry-run) :
 python run_report.py \
-  --brands diptyque \
-  --existing-file "/mnt/data/BIBLE KP & FM Distribution List.xlsx" \
-  --no-email
-
-# + recoupement avec le PDF de référence Competition Distribution (optionnel) :
-python run_report.py \
-  --brands diptyque \
-  --existing-file "/mnt/data/BIBLE KP & FM Distribution List.xlsx" \
-  --reference-pdf "./Competition Distribution.pdf" \
+  --brands pdm,amouage,creed,matiere_premiere,mfk,byredo,nishane,ex_nihilo,bdk,initio \
+  --existing-file "./BIBLE KP & FM Distribution List.xlsx" \
+  --recent-days 60 \
+  --output "./recent_openings.xlsx" \
   --no-email
 ```
 
+(`--brands` a cette liste comme valeur par défaut - inutile de la retaper
+pour un run complet. `--no-email` est accepté mais n'a aucun effet : ce
+workflow n'envoie jamais d'email, voir "Modules legacy" plus bas.)
+
 Chaque exécution :
-1. Scrape les store locators (`brands.yaml`), avec délai de 1-2s entre
-   requêtes et respect du `robots.txt`.
-2. Filtre mono-marque (FSS) vs wholesale via `known_retailers_blocklist.json`
-   + un mot-clé sur le nom de la marque ; toute décision douteuse est
-   loggée dans `_a_verifier.csv` plutôt que tranchée en silence.
-3. Classe par région, calcule le total par marque, compare avec le relevé
-   précédent (`data/snapshots/`) et calcule une tendance simple sur
-   l'historique.
-4. Recoupe avec le fichier de suivi existant si `--existing-file` (ou la
-   variable d'environnement `COMPETITION_EXPORT_CSV`) est fourni - voir
-   "Recoupement avec le fichier BIBLE existant" ci-dessous pour le détail.
-5. Télécharge une photo pour chaque nouvelle boutique détectée quand le
-   scraper en a trouvé une (`photos/{slug}/`), sinon laisse un placeholder
-   `.txt` à compléter à la main.
-6. Génère un brouillon d'email pour les équipes régionales
-   (`drafts/regional_email_YYYY-MM-DD.txt`) listant les marques restées
-   bloquées (échec technique ou pas de scraper fiable) - **jamais envoyé
-   automatiquement**, à relire et envoyer soi-même.
-7. Écrit `report_YYYY-MM-DD.csv` / `.xlsx` (colonnes `BRAND | EMEA | UK |
-   NOAM | LATAM | CHINA | APAC | TOTAL | SOURCE | DATE`, prêtes à copier
-   dans la BIBLE) et m'envoie le tout par email (tableau HTML + pièce
-   jointe), si `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` / `REPORT_RECIPIENT`
-   sont renseignés dans `.env` - sinon le rapport reste disponible en local
-   et le script le signale clairement au lieu d'échouer. Passer `--no-email`
-   pour ne jamais envoyer (tests, dry-run), même si `.env` est configuré.
+1. Scrape les store locators (`brands.yaml`) des marques demandées
+   (`aggregate.py`). Pour Parfums de Marly, Amouage, Creed et Juliette Has
+   A Gun, le filtrage FSS/FSF vs wholesale/grand magasin/parfumerie passe
+   par un jeu de règles dédié par marque (`fss_classifier.py` +
+   `fss_classification_rules.yaml`), construit à partir de vraies données
+   scrapées après que le filtre générique se soit révélé massivement
+   pollué par des revendeurs pour ces marques à forte distribution
+   wholesale. Les autres marques utilisent le filtre générique
+   (mot-clé + `known_retailers_blocklist.json`).
+2. Charge la BIBLE (`.xlsx`, onglet `Competition`, **lecture seule -
+   jamais modifiée**) et le cache de recherche en ligne curatée
+   (`data/online_research_cache.json` - voir sa docstring dans
+   `online_research.py` pour pourquoi c'est un cache et pas une recherche
+   live).
+3. Pour chaque ouverture candidate, deux voies de découverte indépendantes
+   (ni l'une ni l'autre n'est un prérequis pour l'autre - voir
+   `recent_openings.py`) :
+   - **A.** une boutique retrouvée par le scraper, recoupée avec une preuve
+     d'ouverture datée dans le cache ;
+   - **B.** une annonce d'ouverture datée dans le cache, vérifiée contre le
+     store locator officiel et la BIBLE - même si le scraper ne l'a jamais
+     retrouvée lui-même (liste figée, pagination, blocage, ou juste un nom
+     de porte orthographié différemment).
+4. Classe chaque candidat :
+   - **date connue, dans la fenêtre `--recent-days`, absente de la BIBLE**
+     -> `RECENT OPENINGS`.
+   - **date connue, hors fenêtre** -> exclue (ce n'est plus "récent" ; ce
+     n'est pas non plus une question ouverte, donc jamais dans `TO VERIFY`).
+   - **déjà présente dans la BIBLE** (y compris sous un nom/orthographe
+     différent entre le scraper, le cache et la BIBLE) -> exclue.
+   - **date inconnue, mais candidat FSS/FSF plausible et absent de la
+     BIBLE** -> `TO VERIFY`.
+   - **pas FSS/FSF** (grand magasin, parfumerie, revendeur multi-marques,
+     corner/concession, boutique éphémère, vente en ligne) -> exclue.
+5. Écrit le classeur (`--output`, par défaut `recent_openings.xlsx`) :
+   - onglet **`RECENT OPENINGS`** : ouvertures confirmées à ajouter à la
+     BIBLE.
+   - onglet **`TO VERIFY`** : candidats plausibles mais non tranchés
+     (date d'ouverture inconnue).
+   - les deux : en-tête figé, filtres automatiques, colonnes dimensionnées,
+     liens `SOURCE URL` cliquables.
+6. Affiche en console un résumé (marques vérifiées, lignes par onglet,
+   exclusions par catégorie).
 
-Un scraper qui échoue (site changé, blocage anti-bot) n'interrompt jamais
-le reste du run : la marque apparaît en `[ECHEC]` dans le rapport avec le
-message d'erreur, plutôt qu'un chiffre à zéro silencieux.
+Un scraper qui échoue n'interrompt jamais le reste du run - la marque
+retombe sur le dernier relevé du jour (`data/snapshots/`) ou sur ce que le
+cache de recherche sait d'elle, plutôt qu'un chiffre à zéro silencieux.
 
-## Recoupement avec le fichier BIBLE existant
+## 2. Diagnostic optionnel du classifieur FSS/FSF
 
-`--existing-file` accepte deux formats, choisis automatiquement selon
-l'extension :
+Pour les marques qui ont un jeu de règles dédié dans
+`fss_classification_rules.yaml` (Parfums de Marly, Amouage, Creed,
+Juliette Has A Gun), `--include-classifier-diagnostics` génère en plus deux
+fichiers pour évaluer la qualité de ce filtre :
 
-- **`.xlsx`** (le vrai fichier, ex. `BIBLE KP & FM Distribution List.xlsx`) :
-  lu directement depuis l'onglet `Competition`, traité comme une base de
-  données **par porte** (une ligne = une boutique physique), pas comme un
-  tableau de synthèse régionale. Le fichier original **n'est jamais modifié**
-  (ouverture en lecture seule, aucun `.save()`).
-- **`.csv`** (ancien format `BRAND|EMEA|UK|NOAM|LATAM|CHINA|APAC|TOTAL|SOURCE|DATE`) :
-  conservé pour compatibilité ascendante avec les exports de synthèse
-  précédents.
+```bash
+python run_report.py \
+  --brands pdm,amouage,creed,jhag \
+  --existing-file "./BIBLE KP & FM Distribution List.xlsx" \
+  --recent-days 60 \
+  --output "./recent_openings.xlsx" \
+  --include-classifier-diagnostics \
+  --no-email
+```
 
-### Colonnes attendues dans l'onglet `Competition`
+- **`data/fss_filter_quality.csv`** : par marque, nombre de boutiques
+  brutes/incluses/exclues par catégorie, écart vs le total FSS/FSF de la
+  BIBLE, et un statut (`RELIABLE` / `NEEDS_REVIEW` / `UNRELIABLE` /
+  `INSUFFICIENT_DATA`) - voir `fss_filter_quality.py`. Ne peut **jamais**
+  être `RELIABLE` tant qu'un humain n'a pas rempli `MANUAL_VERDICT` dans le
+  fichier suivant.
+- **`data/fss_validation_sample.csv`** : un échantillon manuellement
+  vérifiable (boutiques incluses, exclues, ambiguës, toutes régions
+  représentées) avec des colonnes `MANUAL_VERDICT` / `MANUAL_NOTES` à
+  remplir à la main ; relancer avec ce flag relit un fichier déjà rempli
+  pour affiner le statut du filtre au fil des relances.
 
-`BRAND | REGION | COUNTRY | CITY | DOOR NAME | DOOR TYPE | OFF/Online | RETAILER | DOOR COUNT`
-
-### Nettoyage avant comparaison
-
-Chaque valeur (marque, région, pays, ville, nom de porte) est normalisée
-(`normalize.py` : minuscules, accents retirés, ponctuation et espaces
-superflus supprimés) avant toute comparaison, pour que "Saint-Honoré",
-"saint honore" et "SAINT   HONORE" soient reconnus comme identiques.
-
-Sont exclues avant comparaison :
-- `OFF/Online = Online`
-- `CITY = ONLINE`
-- `RETAILER` contenant `retail.com`
-- lignes avec `DOOR COUNT` vide ou à 0
-
-### Fichiers générés
-
-- **`new_stores_not_in_bible.csv`** : boutiques scrapées qui ne correspondent
-  à aucune porte de la BIBLE (comparaison sur marque + pays + ville + nom de
-  porte, normalisés). Uniquement pour les marques dont le scraper renvoie le
-  détail par boutique - Diptyque (totaux par pays uniquement, pas de nom de
-  porte individuel) n'apparaît jamais ici, seulement dans le fichier de
-  différences régionales ci-dessous.
-- **`possible_closures.csv`** : portes de la BIBLE non retrouvées dans le
-  dernier scrape. **Jamais** marquées comme fermeture confirmée - toujours
-  `STATUS = TO VERIFY`, une porte peut manquer d'un relevé sans avoir
-  réellement fermé (site changé, page bloquée, filtre FSS trop strict ce
-  jour-là). Aucune ligne n'est générée pour une marque quand :
-  - le scraper a échoué (`status = error`) ;
-  - la marque n'a pas de scraper (`status = manual`) ;
-  - la confiance de la marque est `manuelle` ;
-  - le scraper a renvoyé un résultat probablement tronqué (`partial`,
-    ex. plafond de résultats atteint sur un widget Stockist) ;
-  - la couverture scrapée est visiblement incomplète (moins de la moitié du
-    nombre de portes que la BIBLE liste pour cette marque).
-
-  Les marques ignorées pour cette raison sont listées en console
-  (`(détection de fermeture ignorée pour ... : ...)`) - à traiter comme
-  "vérification manuelle nécessaire", pas comme un résultat.
-- **`regional_total_differences.csv`** : total de portes BIBLE vs total
-  scrapé, par marque et par région - seules les lignes avec un écart réel
-  sont listées. Fonctionne aussi pour les marques agrégées (Diptyque),
-  puisque cette comparaison ne nécessite que des totaux, pas le détail par
-  porte.
-
-Les trois fichiers suivent la même règle que `_a_verifier.csv` : rien à
-signaler => le fichier n'est pas (re)créé, pour ne jamais laisser un
-résultat d'un run précédent traîner en silence.
-
-**Important** : le total BIBLE utilisé dans `regional_total_differences.csv`
-(et dans `three_source_comparison.csv` plus bas) ne compte que les portes
-dont `DOOR TYPE` est `FSS` ou `FSF` - jamais les milliers de portes
-wholesale/grands magasins/parfumeries qu'une marque à grosse distribution
-(Parfums de Marly, Amouage...) peut avoir dans la BIBLE. Sans ce filtre, le
-total BIBLE d'une marque à forte distribution wholesale peut dépasser
-1000 portes, ce qui n'a évidemment aucun sens à comparer à un scraping FSS.
-`by_door_key` (utilisé pour la détection de nouvelles boutiques) reste lui
-non filtré par DOOR TYPE, pour éviter un faux "nouvelle boutique" quand
-l'adresse exacte existe déjà dans la BIBLE sous une autre classification.
-
-## Recoupement avec le PDF de référence "Competition Distribution"
-
-`--reference-pdf "./Competition Distribution.pdf"` ajoute une troisième
-source, complémentaire et non-autoritaire : ce PDF contient des totaux
-FSS/FSF recherchés à la main, avec parfois des photos de boutiques et des
-notes de source, mais **jamais traité comme la vérité automatique** - il
-n'est utilisé que pour recouper, jamais pour trancher.
-
-### Ce qui est garanti
-
-- Le PDF n'est **jamais modifié** (lecture seule via `pdfplumber`).
-- Aucune valeur du PDF n'écrase ou ne complète automatiquement une ligne
-  BIBLE : `three_source_comparison.csv` affiche les trois chiffres côte à
-  côte, point.
-- Toute contradiction interne au PDF (ex. 20 boutiques dans le récapitulatif
-  global, 30 sur une autre page pour la même marque) est **conservée telle
-  quelle avec ses deux pages sources**, jamais réconciliée en un seul
-  chiffre - voir `pdf_reference_ambiguities.csv`.
-
-### Extraction
-
-Le PDF est un document en texte libre (pas un tableau structuré), donc
-l'extraction (`pdf_reference.py`) est un parseur heuristique ligne par
-ligne : repérage d'un nom de marque connu comme en-tête de section, d'un
-total mondial ("Worldwide total: 24 boutiques"), d'une ventilation
-régionale ("EMEA: 12"), d'une date de mise à jour ("Updated: February
-2026"), et de noms de boutiques en liste à puces ("- Paris: Nom"). Tout ce
-qui ne correspond clairement à aucun de ces motifs est loggé comme
-"ambigu" plutôt que deviné - voir `pdf_reference_ambiguities.csv` (motif
-non reconnu, entrée incomplète, valeur dupliquée/contradictoire).
-
-Chaque valeur extraite garde son numéro de page PDF d'origine
-(`source_page`), et si la page contient une image, `photo_available` /
-`photo_page` sont renseignés - **aucune image n'est extraite ou
-redistribuée**, seule la page de référence est indiquée (à ouvrir
-manuellement dans le PDF si besoin).
-
-### Fichiers générés
-
-- **`data/reference/competition_distribution_reference.json`** : le jeu de
-  données extrait, une entrée par valeur trouvée (`brand`, `reference_date`,
-  `worldwide_fss_total`, `region`, `country`, `city`, `boutique_name`,
-  `source_page`, `notes`, `confidence`, `photo_available`, `photo_page`).
-- **`pdf_reference_ambiguities.csv`** : contenu ambigu/incomplet, et chaque
-  valeur impliquée dans une contradiction interne au PDF (une ligne par
-  valeur en conflit, avec sa page).
-- **`three_source_comparison.csv`** : site web scrapé vs BIBLE vs PDF, par
-  marque et par région (+ une ligne `WORLDWIDE` par marque, y compris
-  quand le PDF ne donne qu'un total mondial sans ventilation régionale).
-  Colonnes : `BRAND | REGION | WEBSITE_TOTAL | BIBLE_TOTAL |
-  PDF_REFERENCE_TOTAL | WEBSITE_VS_BIBLE | WEBSITE_VS_PDF | BIBLE_VS_PDF |
-  PDF_REFERENCE_DATE | PDF_PAGE | STATUS | NOTES`.
-
-  `STATUS` :
-  | valeur | signifie |
-  |---|---|
-  | `MATCH` | les sources disponibles concordent exactement |
-  | `MINOR_DIFFERENCE` | écart < seuil (2) |
-  | `SIGNIFICANT_DIFFERENCE` | écart >= seuil |
-  | `PDF_CONTRADICTION` | le PDF se contredit lui-même sur cette ligne - `PDF_REFERENCE_TOTAL` reste vide plutôt que de choisir une valeur |
-  | `WEBSITE_PARTIAL` | le chiffre website n'est pas fiable pour cette comparaison (scraper en échec, confiance manuelle, ou résultat partiel) |
-  | `MANUAL_REVIEW` | moins de deux sources ont une valeur pour cette ligne - rien à comparer |
-
-  Ce fichier n'est écrit que si `--reference-pdf` et/ou `--existing-file`
-  (.xlsx) sont fournis.
-
-### Alias de marque
-
-`brand_aliases.json` fait correspondre les orthographes différentes d'une
-même marque selon la source (`MFK` = Maison Francis Kurkdjian, `PDM` =
-Parfums de Marly, `JHAG` = Juliette Has A Gun, `L'Artisan Parfumeur`,
-`Penhaligon's`...) - utilisé partout où une marque est comparée entre
-sources (BIBLE, PDF, site web). Ajouter une entrée dès qu'une marque
-n'est pas reconnue d'une source à l'autre.
+Ce flag est **sans effet sur `recent_openings.xlsx`** : le diagnostic lit
+les données déjà calculées par le scraper (`aggregate.py`), il ne modifie
+rien dans le pipeline d'ouvertures récentes. Absent du flag, aucun des deux
+fichiers n'est (re)généré.
 
 ## Ajouter une marque
 
@@ -244,36 +141,15 @@ pour les cas déjà couverts :
 ```
 
 Parsers `static_html` déjà écrits (`scrapers/static.py`) : `diptyque`
-(totaux par pays), `mfk`, `nishane`, `caron`. Un nouveau site statique
-nécessite une nouvelle fonction `scrape_xxx()` dans ce fichier (regarder la
-structure HTML du site à la main, il n'y a pas de parseur générique magique
-qui marche partout).
+(totaux par pays), `mfk`, `nishane`, `caron`. Parsers `js_widget` :
+`stockist` couvre tout widget Stockist (renseigner
+`stockist_widget_tag`) - pas besoin de code par marque.
 
-Parsers `js_widget` : `stockist` couvre **tout** widget Stockist (juste
-renseigner `stockist_widget_tag`, trouvable dans le HTML de la page via
-`data-stockist-widget-tag="..."`) - pas besoin de code par marque. Pour un
-widget JS qui n'est pas Stockist, chercher d'abord son appel réseau en
-arrière-plan (onglet réseau des devtools) avant de sortir
-`scrapers/dynamic.py:scrape_dynamic_playwright()`, qui reste un dernier
-recours générique (rendu DOM headless).
-
-`scraper_type: manual` = pas de scraper, `known_total` sert de référence
-affichée telle quelle dans le rapport (tag confiance `manuelle`).
-
-## Où sont stockés les identifiants
-
-Dans `.env` (jamais commité, voir `.gitignore`) - copier `.env.example` et
-remplir :
-- `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` : un
-  [mot de passe d'application Gmail](https://myaccount.google.com/apppasswords),
-  jamais le mot de passe principal du compte.
-- `REPORT_RECIPIENT` : à qui envoyer le rapport (généralement soi-même).
-- `REGIONAL_TEAM_RECIPIENTS` : liste (séparée par des virgules) pour
-  pré-remplir le brouillon d'email régional - jamais utilisée pour un envoi
-  automatique.
-- `COMPETITION_EXPORT_CSV` : valeur par défaut pour `--existing-file` si
-  l'option n'est pas passée en ligne de commande (accepte aussi bien un
-  `.xlsx` BIBLE qu'un `.csv` de synthèse, malgré son nom historique).
+Pour donner à une nouvelle marque son propre filtre FSS/FSF déterministe
+(plutôt que le filtre générique par mot-clé), ajouter une section dans
+`fss_classification_rules.yaml` (voir son en-tête pour le schéma exact et
+l'ordre de priorité des règles) - `fss_classifier.py` n'a besoin d'aucune
+modification, il lit uniquement ce YAML.
 
 ## Tests
 
@@ -282,83 +158,92 @@ pip install -r requirements.txt   # inclut pytest
 pytest
 ```
 
-Les tests utilisent un petit onglet `Competition` synthétique généré à la
-volée avec `openpyxl` (`tests/test_diff_existing.py`) - ils ne nécessitent
-pas le vrai fichier BIBLE et ne touchent à aucun fichier réel.
+Les tests utilisent des fixtures synthétiques (`openpyxl`, cache de
+recherche factice) - ils ne nécessitent pas le vrai fichier BIBLE et ne
+touchent à aucun fichier réel.
 
-## Lire le tag de confiance
+## Modules legacy intentionnellement inutilisés
 
-Chaque ligne du rapport porte un statut et une confiance :
+Ces fichiers existent encore dans le dépôt (tests inclus, tous verts) mais
+**ne sont plus appelés par `run_report.py`** depuis le passage au workflow
+"ouvertures récentes" ci-dessus. Ils ne doivent **pas** être reconnectés
+sans une décision explicite : pas de retour du traitement PDF, de l'email,
+des photos, du suivi de fermetures, des analyses historiques/tendance, ni
+des rapports d'audit larges.
 
-| confiance  | signifie |
-|------------|----------|
-| `haute`    | scraper statique fiable, filtre FSS propre (ex. Diptyque, Nishane) |
-| `moyenne`  | scraper fonctionne mais le filtre mono-marque/wholesale est approximatif (ex. MFK, JHAG, Caron - vérifier `_a_verifier.csv`) |
-| `manuelle` | pas de scraper fiable, chiffre de référence à confirmer à la main ou par email régional |
+| Fichier | Rôle (désormais inactif) |
+|---|---|
+| `pdf_reference.py` | extraction du PDF "Competition Distribution" |
+| `three_source_comparison.py` | comparaison website vs BIBLE vs PDF |
+| `photos.py` | téléchargement de photos de nouvelles boutiques |
+| `email_sender.py` | envoi du rapport par Gmail SMTP |
+| `draft_regional_email.py` | brouillon d'email pour les équipes régionales |
+| `report.py` | ancien rapport HTML + export CSV/XLSX régional |
+| `coverage_audit.py` | audit large de couverture par marque (`brand_coverage_audit.csv`, `manual_follow_up.csv`) |
 
-Statut d'exécution (indépendant de la confiance) :
-- `OK` : le scraper a tourné et produit un chiffre.
-- `ECHEC` : le scraper a planté cette fois-ci (site changé, blocage) - le
-  chiffre affiché est celui du dernier relevé réussi si disponible, sinon
-  vide. Revérifier l'URL/la structure de la page avant de suspecter le code.
-- `MANUEL` : pas de scraper du tout, `known_total` affiché tel quel.
+Note sur `coverage_audit.py` : il reste **importé** (pas orphelin au sens
+strict) car `online_research.py` utilise sa fonction
+`needs_manual_follow_up()` pour savoir quelles marques ont du contenu dans
+le cache de recherche. Seule sa propre fonction de génération de rapport
+(`build_coverage_audit()` et les CSV associés) n'est plus appelée par
+personne.
+
+`diff_existing.py` n'est **pas** dans cette liste : sa lecture de la BIBLE
+(`load_bible_competition`, `build_bible_index`, `filter_bible_rows`) et son
+utilitaire d'écriture CSV (`write_rows_csv`) sont toujours au cœur du
+workflow actif ; seules ses fonctions de suivi de fermetures/nouvelles
+boutiques/écarts régionaux (`find_possible_closures`,
+`find_new_stores`, `find_regional_total_differences`) ne sont plus
+appelées par `run_report.py`.
 
 ## Limites connues (volontairement pas sur-ingénierées pour l'instant)
 
 - **Résolution pays -> ville** : quand un store locator ne donne pas le pays
-  directement (MFK, certains widgets Stockist), le pays est déduit d'une
-  petite table ville->pays codée en dur dans `aggregate.py`
-  (`CITY_COUNTRY_HINTS`) plutôt qu'un vrai service de géocodage. À
-  compléter au fil de l'eau : une ville non reconnue part dans
-  `_a_verifier.csv` plutôt que d'être classée au hasard.
+  directement, le pays est déduit d'une petite table ville->pays codée en
+  dur dans `aggregate.py` (`CITY_COUNTRY_HINTS`) plutôt qu'un vrai service
+  de géocodage.
 - **Couverture mondiale des widgets Stockist** : Stockist n'expose qu'une
-  recherche par rayon (pas de "liste tout"), donc `scrapers/dynamic.py`
-  interroge un quadrillage d'une quarantaine de grandes métropoles
-  (`WORLD_CITY_GRID`) avec un rayon de 250km. Une boutique à plus de 250km
-  de tous ces points serait manquée ; une zone très dense (>100 résultats
-  dans un rayon) pourrait aussi être tronquée par le plafond `max_results`
-  de l'API. Le rapport de delta et `_a_verifier.csv` sont là pour repérer
-  ce genre d'écart plutôt qu'une couverture garantie à 100%.
-- **Protection anti-bot** : certains sites (MFK notamment, sur Akamai)
-  peuvent bloquer des requêtes automatisées après plusieurs appels
-  rapprochés, même avec un User-Agent explicite et un délai entre requêtes.
-  C'est le cas d'usage exact du statut `ECHEC` - pas la peine de contourner
-  la protection, relancer plus tard ou vérifier la marque à la main pour
-  cette fois-ci.
-- **Créed** : deux sites officiels distincts trouvés
-  (creedboutique.com et creedfragrance.com), qui n'ont pas le même
-  contenu ni la même fiabilité de filtre FSS - voir la note dans
-  `brands.yaml`, marqué `manuel` en attendant un filtre plus fiable.
+  recherche par rayon, donc `scrapers/dynamic.py` interroge un
+  quadrillage d'une quarantaine de grandes métropoles (`WORLD_CITY_GRID`,
+  rayon 250km) - une boutique très isolée pourrait être manquée, une zone
+  très dense pourrait être tronquée par le plafond de résultats de l'API.
+- **Protection anti-bot** : certains sites peuvent bloquer des requêtes
+  automatisées après plusieurs appels rapprochés - pas la peine de
+  contourner la protection, relancer plus tard.
+- **Rapprochement de noms entre sources** : le scraper, le cache de
+  recherche et la BIBLE n'orthographient pas toujours une même porte à
+  l'identique (ex. "Boutique Marais" vs "LE MARAIS") - `recent_openings.py`
+  vérifie chaque nom disponible (scraper *et* entrée de recherche) contre
+  la BIBLE avant de conclure qu'une porte est nouvelle, mais un
+  rapprochement plus flou (jamais tenté ici) resterait possible à affiner.
 
 ## Structure du projet
 
 ```
-brands.yaml                      config (une marque = un objet)
-region_mapping.py                pays -> région (EMEA/UK/NOAM/LATAM/CHINA/APAC)
-normalize.py                     normalisation texte (accents/casse/ponctuation) pour les comparaisons
-brand_aliases.json + .py         alias de marque entre sources (MFK -> Maison Francis Kurkdjian, ...)
-known_retailers_blocklist.json   revendeurs multi-marques connus à exclure
-scrapers/static.py                scrapers HTML statique (requests + BeautifulSoup)
-scrapers/dynamic.py                widget Stockist (API JSON) + Playwright (dernier recours)
-aggregate.py                     filtre FSS, région, historique/deltas/tendance, confiance
-photos.py                        téléchargement des photos de nouvelles boutiques
-diff_existing.py                 recoupement BIBLE .xlsx (porte par porte) + ancien export .csv
-pdf_reference.py                 extraction du PDF Competition Distribution (référence, non-autoritaire)
-three_source_comparison.py       comparaison website vs BIBLE vs PDF
-draft_regional_email.py          brouillon d'email pour les équipes régionales (jamais envoyé)
-report.py                        tableau HTML + export CSV/XLSX
-email_sender.py                  envoi Gmail SMTP
-run_report.py                    point d'entrée CLI
-tests/                           tests automatisés (pytest, fixtures synthétiques)
-conftest.py                      ancre pytest à la racine du projet pour les imports
-data/snapshots/                  un relevé daté par run (JSON, gitignoré)
-data/reference/                  jeu de données extrait du PDF (JSON, gitignoré)
-photos/{slug}/                   photos téléchargées / placeholders (gitignoré)
-drafts/                           brouillons d'email régional (gitignoré)
-_a_verifier.csv                  classifications douteuses du dernier run (gitignoré)
-new_stores_not_in_bible.csv      boutiques scrapées absentes de la BIBLE (gitignoré)
-possible_closures.csv            portes BIBLE non retrouvées, TO VERIFY (gitignoré)
-regional_total_differences.csv  écarts de total par marque/région (gitignoré)
-pdf_reference_ambiguities.csv   contenu ambigu/contradictoire du PDF (gitignoré)
-three_source_comparison.csv     website vs BIBLE vs PDF (gitignoré)
+brands.yaml                          config (une marque = un objet)
+region_mapping.py                    pays -> région (EMEA/UK/NOAM/LATAM/CHINA/APAC)
+normalize.py                         normalisation texte (accents/casse/ponctuation)
+brand_aliases.json + .py             alias de marque entre sources
+known_retailers_blocklist.json       revendeurs multi-marques connus à exclure (filtre générique)
+fss_classification_rules.yaml        règles FSS/FSF dédiées par marque (PDM, Amouage, Creed, JHAG)
+fss_classifier.py                    applique fss_classification_rules.yaml
+fss_filter_quality.py                diagnostic optionnel de qualité du filtre FSS/FSF
+scrapers/static.py                   scrapers HTML statique (requests + BeautifulSoup)
+scrapers/dynamic.py                  widget Stockist (API JSON) + Playwright (dernier recours)
+aggregate.py                         scrape + filtre FSS + région, par marque
+diff_existing.py                     lecture BIBLE .xlsx (onglet Competition, lecture seule)
+online_research.py                   cache de recherche en ligne curatée (data/online_research_cache.json)
+recent_openings.py                   pipeline ouvertures récentes + écriture du classeur Excel
+run_report.py                        point d'entrée CLI
+tests/                               tests automatisés (pytest, fixtures synthétiques)
+conftest.py                          ancre pytest à la racine du projet pour les imports
+data/snapshots/                      un relevé daté par run (JSON, gitignoré)
+data/online_research_cache.json      cache de recherche curatée (commité, pas gitignoré)
+data/fss_filter_quality.csv          diagnostic optionnel (gitignoré, --include-classifier-diagnostics)
+data/fss_validation_sample.csv       diagnostic optionnel (gitignoré, --include-classifier-diagnostics)
+recent_openings.xlsx                 classeur de sortie (gitignoré)
+
+pdf_reference.py, three_source_comparison.py, photos.py, email_sender.py,
+draft_regional_email.py, report.py, coverage_audit.py   modules legacy - voir
+                                                          section dédiée ci-dessus
 ```

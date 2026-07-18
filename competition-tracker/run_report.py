@@ -12,6 +12,15 @@ from pathlib import Path
 import yaml
 
 from aggregate import run_all
+from diff_existing import write_rows_csv
+from fss_filter_quality import (
+    FILTER_QUALITY_COLUMNS,
+    VALIDATION_SAMPLE_COLUMNS,
+    build_filter_quality_row,
+    build_validation_sample,
+    compute_precision_from_verdicts,
+    load_previous_verdicts,
+)
 from recent_openings import (
     build_recent_openings_rows,
     load_bible_index,
@@ -20,7 +29,8 @@ from recent_openings import (
 )
 
 BASE_DIR = Path(__file__).parent
-SNAPSHOTS_DIR = BASE_DIR / "data" / "snapshots"
+DATA_DIR = BASE_DIR / "data"
+SNAPSHOTS_DIR = DATA_DIR / "snapshots"
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +63,16 @@ def parse_args() -> argparse.Namespace:
         "--no-email",
         action="store_true",
         help="Accepted for backward compatibility; no email is ever sent by this workflow.",
+    )
+    parser.add_argument(
+        "--include-classifier-diagnostics",
+        action="store_true",
+        help=(
+            "Also write data/fss_filter_quality.csv and data/fss_validation_sample.csv - a "
+            "read-only diagnostic on the brand-specific FSS/FSF classifier's own output "
+            "(fss_classifier.py) for brands that have it. Never affects recent_openings.xlsx. "
+            "Omitted by default."
+        ),
     )
     return parser.parse_args()
 
@@ -150,6 +170,45 @@ def _write_workbook_with_fallback(recent_rows: list[dict], verify_rows: list[dic
         return write_recent_openings_workbook(recent_rows, verify_rows, fallback_path), True
 
 
+def _run_classifier_diagnostics(brands: list[dict], live_results: list[dict], bible_index: dict, today: date) -> int:
+    """data/fss_validation_sample.csv + data/fss_filter_quality.csv - a
+    read-only diagnostic layer over what aggregate.py's brand-specific FSS
+    classifier (fss_classifier.py) already computed. Only opt-in via
+    --include-classifier-diagnostics, and deliberately reads live_results
+    (aggregate.run_all()'s own output, before _merge_results_with_fallbacks)
+    since only that carries fss_classified_records/scrape_stats - it has no
+    effect on recent_rows/verify_rows/the workbook, which are built
+    separately from the merged results.
+    """
+    validation_path = DATA_DIR / "fss_validation_sample.csv"
+    previous_verdicts = load_previous_verdicts(validation_path)
+    brand_by_name = {brand["name"]: brand for brand in brands}
+
+    all_sample_rows = []
+    quality_rows = []
+
+    for result in live_results:
+        if result.get("fss_classified_records") is None:
+            continue
+        brand_name = result["brand"]
+        source_url = brand_by_name.get(brand_name, {}).get("store_locator_url")
+
+        all_sample_rows.extend(build_validation_sample(
+            brand_name, result["fss_classified_records"], source_url, bible_index=bible_index,
+        ))
+
+        reviewed, false_positives, false_negatives = compute_precision_from_verdicts(previous_verdicts, brand_name)
+        quality_rows.append(build_filter_quality_row(
+            brand_name, result["scrape_stats"], bible_index,
+            precision_sample_size=reviewed, false_positives=false_positives, false_negatives=false_negatives,
+            confidence_label=result.get("confidence"), checked_date=today,
+        ))
+
+    write_rows_csv(all_sample_rows, validation_path, fieldnames=VALIDATION_SAMPLE_COLUMNS)
+    write_rows_csv(quality_rows, DATA_DIR / "fss_filter_quality.csv", fieldnames=FILTER_QUALITY_COLUMNS)
+    return len(quality_rows)
+
+
 def main() -> int:
     args = parse_args()
     only_slugs = [slug.strip() for slug in args.brands.split(",") if slug.strip()] if args.brands else None
@@ -160,6 +219,14 @@ def main() -> int:
     live_results = run_all(brands, only_slugs=only_slugs)
 
     bible_index = load_bible_index(Path(args.existing_file))
+
+    if args.include_classifier_diagnostics:
+        n_diagnosed = _run_classifier_diagnostics(brands, live_results, bible_index, today)
+        print(
+            f"{n_diagnosed} brand(s) with a dedicated FSS/FSF classifier diagnosed -> "
+            "data/fss_filter_quality.csv, data/fss_validation_sample.csv"
+        )
+
     research_cache = load_research_cache()
     results = _merge_results_with_fallbacks(live_results, brands, research_cache, only_slugs, today)
     recent_rows, verify_rows, summary = build_recent_openings_rows(
