@@ -81,8 +81,8 @@
       "region": "NOAM",
       "country": "United States",
       "city": "New York",
-      "store_name": "Penhaligon's - 611 Fifth Avenue",
-      "address": "611 Fifth Avenue, New York, NY",
+      "store_name": "Penhaligon's - Rockefeller Centre (620 Fifth Avenue)",
+      "address": "620 Fifth Avenue, Rockefeller Centre, New York, NY",
       "url": "https://visit5thavenue.com/penhaligons/",
       "source_title": "Penhaligon's",
       "source_domain": "visit5thavenue.com",
@@ -92,7 +92,7 @@
       "confidence": "medium",
       "evidence": "A Fifth Avenue shopping-district directory site lists this address, but it was not possible to confirm whether visit5thavenue.com is the official Fifth Avenue Association/landlord site or an independent city guide.",
       "status": "TO VERIFY",
-      "verification_notes": "Treated as medium (not the high-confidence 'official mall/landlord directory' tier) pending confirmation of the site's official status; single source, no second corroboration found this pass.",
+      "verification_notes": "Final evidence-verification pass (2026-07-18): opened the cited source directly - it actually lists the address as \"Rockefeller Centre, 620 5th Avenue\", not \"611 Fifth Avenue\" as originally recorded. Address and door name corrected to match the verified source. Still not the high-confidence official-directory tier (site's official status unconfirmed) and still no opening date - remains UNCLEAR/OTHER OPENINGS, not a BIBLE match (BIBLE lists only PENHALIGON'S NYC PRINCE STREET as FSS in New York, plus two department-store doors - none match this address or name).",
       "researched_at": "2026-07-17"
     },
     {
@@ -144,12 +144,12 @@
       "source_title": "Amouage official store locator",
       "source_domain": "amouage.com",
       "source_type": "official_brand_store_page",
-      "source_date": "2026-06-18",
+      "source_date": null,
       "store_classification": "FSS",
-      "confidence": "high",
+      "confidence": "medium",
       "evidence": "Official Amouage store locator lists this Beverly Hills boutique (\"The Wadi\") at 311 North Beverly Drive; opening evidence dated approximately 2026-06-18.",
-      "status": "CONFIRMED",
-      "verification_notes": "Not found in the BIBLE under any door name for Amouage in Beverly Hills (only \"BEVERLY HILLS PERFUMERY\" and \"NEIMAN MARCUS BEVERLY HILLS\" exist there, both non-Amouage-owned) - genuinely absent, qualifies for RECENT OPENINGS.",
+      "status": "TO VERIFY",
+      "verification_notes": "Final evidence-verification pass (2026-07-18): the official store-locator page could not be opened despite 4 separate attempts (HTTP 429, likely bot protection on the Shopify-hosted site, consistent with the anti-bot behavior already noted for other brands on this platform in brands.yaml). The 2026-06-18 opening date and CONFIRMED status cannot be independently re-verified this pass, so both were withdrawn and this entry moved to TO VERIFY pending a successful re-check of the source page. Address and BIBLE-absence finding are unaffected (BIBLE only has BEVERLY HILLS PERFUMERY and NEIMAN MARCUS BEVERLY HILLS for Amouage in Beverly Hills, neither is this door).",
       "researched_at": "2026-07-17"
     },
     {
